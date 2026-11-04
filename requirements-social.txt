@@ -1,0 +1,3 @@
+# Optional. Install on host to enable public-platform collection where permitted.
+gallery-dl==1.30.0
+

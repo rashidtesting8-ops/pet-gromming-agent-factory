@@ -1,0 +1,81 @@
+{
+  "name": "02 - Check Grooming Research Job",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "pet-grooming-research-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "42085cec-13d2-450f-8c26-abed90bdd406",
+      "name": "Receive Job ID",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "e90256aa-c893-47ac-9535-0bf3e3b24f5d"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://collector:8787/jobs/' + $json.query.jobId }}",
+        "options": {}
+      },
+      "id": "9426df8b-1bb9-4590-8b5e-5f89491d7783",
+      "name": "Fetch Research Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "2bec076e-2caf-452c-814b-e421a3b2cb87",
+      "name": "Return Job Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        760,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Receive Job ID": {
+      "main": [
+        [
+          {
+            "node": "Fetch Research Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Research Status": {
+      "main": [
+        [
+          {
+            "node": "Return Job Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
+

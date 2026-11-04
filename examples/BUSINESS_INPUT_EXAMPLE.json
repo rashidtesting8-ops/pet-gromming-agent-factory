@@ -1,0 +1,30 @@
+{
+  "project_id": "example-groomer-001",
+  "business_name": null,
+  "website_url": "https://example.com/",
+  "instagram_url": null,
+  "facebook_url": null,
+  "manual_asset_folder": null,
+  "approved_brand_assets_folder": null,
+  "preferred_contact_or_booking_url": null,
+  "collection": {
+    "social_lookback_days": 365,
+    "website_max_pages": 25,
+    "website_media_max_candidates": 80,
+    "social_max_files_per_platform": 40,
+    "record_provenance": true,
+    "require_human_asset_rights_review": true
+  },
+  "review": {
+    "viewport_widths": [1440, 1024, 768, 390, 360],
+    "human_approval_required": true,
+    "approval_status": "pending"
+  },
+  "delivery": {
+    "local_html": true,
+    "ghl_ready_snippet": true,
+    "public_hosting_required_for_local_review": false,
+    "cleanup_requires_verified_backup": true
+  }
+}
+

@@ -1,0 +1,57 @@
+[project]
+name = "pet-grooming-engine"
+version = "0.2.0"
+description = "Pet Grooming Website Builder Engine (EditVista) — Local Collector & Stage Contracts"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4==4.13.3",
+    "fastapi==0.115.11",
+    "pillow==11.1.0",
+    "pydantic==2.10.6",
+    "requests==2.32.3",
+    "uvicorn==0.34.0",
+]
+
+[project.optional-dependencies]
+browser = [
+    "playwright==1.55.0",
+]
+social = [
+    "gallery-dl==1.30.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright==1.1.396",
+    "pytest==8.3.5",
+    "ruff==0.9.10",
+    "types-beautifulsoup4==4.12.0.20250204",
+    "types-requests==2.32.0.20250306",
+]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engine", "app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src", "app", "tests"]
+extraPaths = ["src", "."]
+typeCheckingMode = "standard"
+
