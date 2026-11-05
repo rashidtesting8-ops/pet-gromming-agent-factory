@@ -220,6 +220,8 @@ def test_real_urllib3_stack_preserves_host_header_and_blocks_redirects() -> None
                         "<h1> Groom </h1>"
                     )
                 server_sock.sendall(resp.encode("latin1"))
+            except OSError:
+                pass
             finally:
                 server_sock.close()
 

@@ -213,6 +213,11 @@ def dial_verified_socket(
             sock = active_connector(target, timeout, source_address)
             if socket_options:
                 for opt in socket_options:
+                    if opt[0] == socket.IPPROTO_TCP and sock.family not in (
+                        socket.AF_INET,
+                        socket.AF_INET6,
+                    ):
+                        continue
                     sock.setsockopt(*opt)
             return sock
         except Exception as exc:
