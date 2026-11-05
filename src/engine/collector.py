@@ -16,6 +16,7 @@ import re
 import socket
 import time
 from collections import deque
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,16 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup, Tag
 from PIL import Image, UnidentifiedImageError
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.util.connection import allowed_gai_family
 
 AGENT = "PetSiteResearchBot"
 USER_AGENT = "PetSiteResearchBot/0.2 (+respectful-preview-audit)"
 DEFAULT_MAX_MEDIA = 80
 MAX_SITE_BYTES = 140 * 1024 * 1024
+MAX_REDIRECT_HOPS = 6
 MEDIA_EXTENSIONS = {
     ".png",
     ".jpg",
@@ -67,6 +73,11 @@ PAGE_HINTS = (
     "policy",
     "book",
 )
+_NUMERIC_OR_HEX_LABEL_RE = re.compile(r"^(?:0x[0-9a-f]+|\d+)$", re.I)
+
+AddrInfoRecord = tuple[int, int, int, str, tuple[Any, ...]]
+ResolverFn = Callable[[str, int], Sequence[AddrInfoRecord]]
+ConnectorFn = Callable[[tuple[str, int], float | None, tuple[str, int] | None], socket.socket]
 
 
 def now() -> str:
@@ -78,19 +89,261 @@ def slugify(value: str) -> str:
     return val[:65] or "website"
 
 
-def safe_url(url: str, allow_private: bool = False) -> str:
+def validate_ip_address(raw_ip: str, *, allow_private: bool = False) -> str:
+    """Validate an IP string, unwrapping IPv4-mapped IPv6 and rejecting non-global addresses."""
+    cleaned = raw_ip.strip().strip("[]").split("%")[0]
+    try:
+        ip = ipaddress.ip_address(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"Invalid IP address: {raw_ip!r}") from exc
+
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+
+    if not allow_private and (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        raise ValueError(f"Non-public address blocked: {raw_ip}")
+
+    return str(ip)
+
+
+def _validate_hostname(hostname: str, *, allow_private: bool = False) -> str:
+    host = hostname.strip().strip("[]")
+    if not host:
+        raise ValueError("Empty hostname is not allowed")
+
+    if ":" in host:
+        # IPv6 literal
+        return validate_ip_address(host, allow_private=allow_private)
+
+    labels = host.rstrip(".").split(".")
+    if any(not lbl for lbl in labels):
+        raise ValueError(f"Invalid hostname: {hostname!r}")
+
+    # If the final label (or every label) is numeric or hex, it must be a canonical
+    # 4-octet decimal IPv4 address (no octal leading zeros, no hex, no 32-bit integer form).
+    if all(_NUMERIC_OR_HEX_LABEL_RE.match(lbl) for lbl in labels) or _NUMERIC_OR_HEX_LABEL_RE.match(
+        labels[-1]
+    ):
+        try:
+            ipv4 = ipaddress.IPv4Address(host)
+        except ipaddress.AddressValueError as exc:
+            raise ValueError(f"Encoded or non-canonical IP literal blocked: {hostname}") from exc
+        return validate_ip_address(str(ipv4), allow_private=allow_private)
+
+    return host
+
+
+def safe_url(url: str, *, allow_private: bool = False) -> str:
+    """Early syntactic URL checks: http/https scheme, standard ports 80/443, no userinfo."""
     p = urlparse(url)
     if p.scheme not in ("http", "https") or not p.hostname:
         raise ValueError("Only absolute HTTP(S) URLs are allowed")
     if p.username or p.password:
         raise ValueError("Embedded credentials are not permitted")
-    if allow_private:
-        return url
-    port = p.port or (443 if p.scheme == "https" else 80)
-    ips = socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
-    if not ips or any(not ipaddress.ip_address(result[4][0]).is_global for result in ips):
-        raise ValueError("Non-public address blocked")
+    try:
+        port = p.port
+    except ValueError as exc:
+        raise ValueError("Invalid URL port") from exc
+    if not allow_private and port not in (None, 80, 443):
+        raise ValueError("Only standard HTTP/HTTPS ports (80/443) are allowed")
+    _validate_hostname(p.hostname, allow_private=allow_private)
     return url
+
+
+def _default_resolver(host: str, port: int) -> Sequence[AddrInfoRecord]:
+    family = allowed_gai_family()
+    return socket.getaddrinfo(host, port, family, socket.SOCK_STREAM)
+
+
+def _default_connector(
+    addr: tuple[str, int],
+    timeout: float | None,
+    source_address: tuple[str, int] | None,
+) -> socket.socket:
+    if timeout is not None and not isinstance(timeout, int | float):
+        timeout = None
+    return socket.create_connection(addr, timeout=timeout, source_address=source_address)
+
+
+def dial_verified_socket(
+    host: str,
+    port: int,
+    *,
+    timeout: float | None = None,
+    source_address: tuple[str, int] | None = None,
+    socket_options: Sequence[tuple[int, int, int | bytes]] | None = None,
+    allow_private: bool = False,
+    resolver: ResolverFn | None = None,
+    connector: ConnectorFn | None = None,
+) -> socket.socket:
+    """Single dialer: resolve once -> validate ALL resolved IPs -> connect to validated IP."""
+    if not allow_private and port not in (80, 443):
+        raise ValueError(f"Non-standard port blocked: {port}")
+    clean_host = host.strip().strip("[]")
+    _validate_hostname(clean_host, allow_private=allow_private)
+
+    active_resolver = resolver or _default_resolver
+    active_connector = connector or _default_connector
+
+    records = list(active_resolver(clean_host, port))
+    if not records:
+        raise ValueError(f"DNS resolution returned no addresses for {clean_host!r}")
+
+    # Validate EVERY resolved address before attempting any connection.
+    validated_targets: list[tuple[str, int]] = []
+    for entry in records:
+        sockaddr = entry[4]
+        raw_ip = str(sockaddr[0])
+        target_port = int(sockaddr[1]) if len(sockaddr) > 1 else port
+        canonical_ip = validate_ip_address(raw_ip, allow_private=allow_private)
+        validated_targets.append((canonical_ip, target_port))
+
+    last_err: Exception | None = None
+    for target in validated_targets:
+        sock: socket.socket | None = None
+        try:
+            sock = active_connector(target, timeout, source_address)
+            if socket_options:
+                for opt in socket_options:
+                    sock.setsockopt(*opt)
+            return sock
+        except Exception as exc:
+            if sock is not None:
+                sock.close()
+            last_err = exc
+
+    if last_err is not None:
+        raise last_err
+    raise ValueError(f"Failed to connect to {clean_host!r}")
+
+
+class SafeHTTPAdapter(HTTPAdapter):
+    """Scoped HTTPAdapter mounting custom connection pools that use dial_verified_socket."""
+
+    def __init__(
+        self,
+        *,
+        allow_private: bool = False,
+        resolver: ResolverFn | None = None,
+        connector: ConnectorFn | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._allow_private = allow_private
+        self._resolver = resolver
+        self._connector = connector
+        super().__init__(**kwargs)
+
+    def init_poolmanager(
+        self,
+        connections: int,
+        maxsize: int,
+        block: bool = False,
+        **pool_kwargs: Any,
+    ) -> None:
+        super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+        allow_private = self._allow_private
+        resolver = self._resolver
+        connector = self._connector
+
+        class _ScopedHTTPConnection(HTTPConnection):
+            def _new_conn(self) -> socket.socket:
+                timeout_val = float(self.timeout) if isinstance(self.timeout, int | float) else None
+                return dial_verified_socket(
+                    self._dns_host,
+                    int(self.port),
+                    timeout=timeout_val,
+                    source_address=self.source_address,
+                    socket_options=self.socket_options,
+                    allow_private=allow_private,
+                    resolver=resolver,
+                    connector=connector,
+                )
+
+        class _ScopedHTTPSConnection(HTTPSConnection):
+            def _new_conn(self) -> socket.socket:
+                timeout_val = float(self.timeout) if isinstance(self.timeout, int | float) else None
+                return dial_verified_socket(
+                    self._dns_host,
+                    int(self.port),
+                    timeout=timeout_val,
+                    source_address=self.source_address,
+                    socket_options=self.socket_options,
+                    allow_private=allow_private,
+                    resolver=resolver,
+                    connector=connector,
+                )
+
+        class _ScopedHTTPConnectionPool(HTTPConnectionPool):
+            ConnectionCls = _ScopedHTTPConnection  # type: ignore[assignment]
+
+        class _ScopedHTTPSConnectionPool(HTTPSConnectionPool):
+            ConnectionCls = _ScopedHTTPSConnection  # type: ignore[assignment]
+
+        self.poolmanager.pool_classes_by_scheme = {
+            "http": _ScopedHTTPConnectionPool,
+            "https": _ScopedHTTPSConnectionPool,
+        }
+
+
+def build_collector_session(
+    *,
+    allow_private: bool = False,
+    resolver: ResolverFn | None = None,
+    connector: ConnectorFn | None = None,
+    user_agent: str = USER_AGENT,
+) -> requests.Session:
+    """Create a hardened collector Session with trust_env=False and SafeHTTPAdapter."""
+    sess = requests.Session()
+    sess.trust_env = False
+    sess.proxies = {}
+    sess.headers.update(
+        {
+            "User-Agent": user_agent,
+            "Accept": "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.8",
+        }
+    )
+    adapter = SafeHTTPAdapter(
+        allow_private=allow_private,
+        resolver=resolver,
+        connector=connector,
+    )
+    sess.mount("http://", adapter)
+    sess.mount("https://", adapter)
+    return sess
+
+
+def _ensure_safe_session(
+    session: requests.Session,
+    *,
+    allow_private: bool = False,
+    resolver: ResolverFn | None = None,
+    connector: ConnectorFn | None = None,
+) -> None:
+    session.trust_env = False
+    session.proxies = {}
+    existing = session.get_adapter("http://")
+    needs_mount = (
+        not isinstance(existing, SafeHTTPAdapter)
+        or existing._allow_private != allow_private
+        or (resolver is not None and existing._resolver is not resolver)
+        or (connector is not None and existing._connector is not connector)
+    )
+    if needs_mount:
+        adapter = SafeHTTPAdapter(
+            allow_private=allow_private,
+            resolver=resolver if resolver is not None else getattr(existing, "_resolver", None),
+            connector=connector if connector is not None else getattr(existing, "_connector", None),
+        )
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
 
 
 def response_get(
@@ -99,17 +352,32 @@ def response_get(
     *,
     allow_private: bool = False,
     stream: bool = False,
+    resolver: ResolverFn | None = None,
+    connector: ConnectorFn | None = None,
 ) -> requests.Response:
-    # Validate every redirect hop to block SSRF via redirects.
-    for _ in range(6):
-        safe_url(url, allow_private=allow_private)
-        response = session.get(url, timeout=(7, 18), stream=stream, allow_redirects=False)
+    """Fetch URL with manual redirect following and full SSRF/rebinding checks on every hop."""
+    _ensure_safe_session(
+        session,
+        allow_private=allow_private,
+        resolver=resolver,
+        connector=connector,
+    )
+    current_url = url
+    for _ in range(MAX_REDIRECT_HOPS):
+        safe_url(current_url, allow_private=allow_private)
+        response = session.get(
+            current_url,
+            timeout=(7, 18),
+            stream=stream,
+            allow_redirects=False,
+            proxies={},
+        )
         if response.status_code in (301, 302, 303, 307, 308):
             nxt = response.headers.get("Location")
             response.close()
             if not nxt:
                 raise RuntimeError("Redirect without Location")
-            url = urljoin(url, nxt)
+            current_url = urljoin(current_url, nxt)
             continue
         return response
     raise RuntimeError("Too many redirects")
@@ -338,6 +606,8 @@ def collect(
     max_media: int = DEFAULT_MAX_MEDIA,
     *,
     allow_private: bool = False,
+    resolver: ResolverFn | None = None,
+    connector: ConnectorFn | None = None,
 ) -> dict[str, Any]:
     if not 1 <= max_pages <= 40 or not 1 <= max_media <= 120:
         raise ValueError("max_pages must be 1..40 and max_media 1..120")
@@ -360,12 +630,10 @@ def collect(
     ):
         (folder / sub).mkdir(parents=True, exist_ok=True)
 
-    sess = requests.Session()
-    sess.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.8",
-        }
+    sess = build_collector_session(
+        allow_private=allow_private,
+        resolver=resolver,
+        connector=connector,
     )
     queue: deque[str] = deque([site_url])
     seen_pages: set[str] = set()

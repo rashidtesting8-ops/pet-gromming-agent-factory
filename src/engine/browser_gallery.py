@@ -13,10 +13,15 @@ from typing import Any
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
-import requests
 from bs4 import BeautifulSoup
 
-from engine.collector import collect_page_text, download_one, grab_media, safe_url
+from engine.collector import (
+    build_collector_session,
+    collect_page_text,
+    download_one,
+    grab_media,
+    safe_url,
+)
 
 
 def render_gallery(
@@ -83,8 +88,9 @@ def render_gallery(
         known_urls = {r.get("url") for r in rows}
         added: list[dict[str, Any]] = []
         total = 0
-        with requests.Session() as sess:
-            sess.headers.update({"User-Agent": "PetSiteResearchBot/0.2 (+gallery-review)"})
+        with build_collector_session(
+            user_agent="PetSiteResearchBot/0.2 (+gallery-review)"
+        ) as sess:
             robots: dict[str, RobotFileParser | bool | None] = {}
             for item in out["rendered_media_candidates"][:max_files]:
                 if item["url"] in known_urls:
