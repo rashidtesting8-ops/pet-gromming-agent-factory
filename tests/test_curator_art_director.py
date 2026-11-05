@@ -1,4 +1,4 @@
-"""Unit tests for Visual Curator (app/curator.py) and Brand Analyst & Art Director (app/art_director.py)."""
+"""Unit tests for Visual Curator (app/curator.py) and Art Director (app/art_director.py)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,13 @@ import json
 import re
 from pathlib import Path
 
-from PIL import Image, ImageDraw
-
 from app.art_director import generate_art_direction
 from app.curator import (
     CSS_PERCENT_RE,
     CuratorHeuristicObservation,
     curate_project_images,
 )
+from PIL import Image, ImageDraw
 
 CSS_COORD_PATTERN = re.compile(r"^\d{1,3}(?:\.\d+)?%\s+\d{1,3}(?:\.\d+)?%$")
 
@@ -37,7 +36,7 @@ def _create_image(
         draw.rectangle(subject_box, fill=subject_color, outline=(255, 255, 255), width=4)
 
     if add_sharp_edges:
-        # Draw high-contrast fur/texture grid inside subject region so Laplacian/gradient sharpness is high
+        # Draw high-contrast texture grid inside subject region for high edge sharpness
         x0, y0, x1, y1 = subject_box or (width // 4, height // 6, 3 * width // 4, 2 * height // 3)
         for x in range(x0, x1, 12):
             draw.line([(x, y0), (x, y1)], fill=(20, 20, 20), width=2)
@@ -45,7 +44,7 @@ def _create_image(
             draw.line([(x0, y), (x1, y)], fill=(245, 245, 245), width=2)
 
     if add_banner_text:
-        # Draw high-contrast top promotional banner strip with alternating vertical text-like strokes
+        # Draw high-contrast top promotional banner strip with alternating vertical strokes
         banner_h = max(40, height // 6)
         draw.rectangle((0, 0, width, banner_h), fill=(255, 255, 0))
         for x in range(20, width - 20, 8):
@@ -204,7 +203,7 @@ def test_curator_focal_coordinates_are_valid_css_percentages(tmp_path: Path) -> 
 
 
 def test_art_director_mobile_and_cat_dog_wireframes_and_brand_colors(tmp_path: Path) -> None:
-    """Art Director must extract brand palette (or fallback) and customize wireframe for mobile & cat+dog salons."""
+    """Art Director extracts brand palette (or fallback) and builds mobile & cat+dog wireframes."""
     # Case 1: Mobile Groomer with logo
     mobile_root = tmp_path / "projects" / "zoom-mobile-groom"
     (mobile_root / "research").mkdir(parents=True, exist_ok=True)
@@ -270,7 +269,7 @@ def test_art_director_mobile_and_cat_dog_wireframes_and_brand_colors(tmp_path: P
     assert brief_mobile.wireframe.feature_self_contained_van_badge is True
     assert brief_mobile.wireframe.instant_call_cta is True
 
-    # Case 2: Cat + Dog Salon without logo (tests accessible pet-care fallback palette: navy, warm amber, soft sage)
+    # Case 2: Cat + Dog Salon without logo (accessible fallback: navy, warm amber, soft sage)
     salon_root = tmp_path / "projects" / "whiskers-and-wags"
     (salon_root / "research").mkdir(parents=True, exist_ok=True)
     salon_facts = {
