@@ -1,0 +1,317 @@
+"""Standalone HTML and GoHighLevel snippet exporter with mandatory asset rights release gate.
+
+Enforces two non-negotiable release gates from AGENTS.md and DEVELOPER_BRIEF.md:
+1. Every asset used in the page must exist in the project manifests with
+   rights_confirmed_for_preview == True. If any used asset has
+   rights_confirmed_for_preview=False (or is missing from the manifest), the
+   exporter refuses to build delivery/approved-homepage.html or
+   delivery/ghl-ready.html and returns the clear list of offending assets.
+2. Approved releases under delivery/ are immutable and are never overwritten.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import tempfile
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from bs4 import BeautifulSoup
+
+ASSET_REF_RE = re.compile(
+    r"(?:\.\./|\./|/|^)(assets/(?:website|instagram|facebook|optimized|thumbnails)/[A-Za-z0-9._/-]+)"
+)
+
+
+def _atomic_write_text(target: Path, content: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _normalize_asset_ref(raw_ref: str) -> str | None:
+    cleaned = raw_ref.strip().strip("'\"()").split("?")[0].split("#")[0].replace("\\", "/")
+    while cleaned.startswith("../") or cleaned.startswith("./") or cleaned.startswith("/"):
+        if cleaned.startswith("../"):
+            cleaned = cleaned[3:]
+        elif cleaned.startswith("./"):
+            cleaned = cleaned[2:]
+        elif cleaned.startswith("/"):
+            cleaned = cleaned[1:]
+    if cleaned.startswith("assets/"):
+        return cleaned
+    return None
+
+
+def extract_used_assets(html: str) -> list[str]:
+    """Discover all local asset paths referenced in HTML attributes, srcset, or CSS."""
+    used: set[str] = set()
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup.find_all(True):
+        for attr in ("src", "href", "poster", "data-src", "data-bg"):
+            val = tag.get(attr)
+            if isinstance(val, str):
+                norm = _normalize_asset_ref(val)
+                if norm:
+                    used.add(norm)
+        srcset = tag.get("srcset")
+        if isinstance(srcset, str):
+            for part in srcset.split(","):
+                tokens = part.strip().split()
+                if tokens:
+                    norm = _normalize_asset_ref(tokens[0])
+                    if norm:
+                        used.add(norm)
+
+    for match in ASSET_REF_RE.finditer(html):
+        norm = _normalize_asset_ref(match.group(1))
+        if norm:
+            used.add(norm)
+
+    return sorted(used)
+
+
+def _load_manifest_index(project_root: Path) -> dict[str, dict[str, Any]]:
+    """Index all known asset manifest rows by their relative file paths."""
+    index: dict[str, dict[str, Any]] = {}
+    manifest_paths = (
+        project_root / "research" / "asset-manifest.json",
+        project_root / "research" / "social-media-manifest.json",
+        project_root / "delivery" / "asset-manifest.json",
+    )
+    for mpath in manifest_paths:
+        if not mpath.is_file():
+            continue
+        try:
+            rows = json.loads(mpath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in ("file", "local_path", "optimized_file"):
+                val = row.get(key)
+                if isinstance(val, str):
+                    norm = _normalize_asset_ref(val)
+                    if norm:
+                        index[norm] = row
+    return index
+
+
+def check_used_asset_rights(
+    project_folder: str | Path,
+    *,
+    source_html_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return a list of any used assets that lack rights_confirmed_for_preview == True."""
+    project_root = Path(project_folder).resolve()
+    html_file = (
+        Path(source_html_path).resolve()
+        if source_html_path is not None
+        else (project_root / "website" / "index.html")
+    )
+    if not html_file.is_file():
+        raise ValueError(f"Source HTML file not found: {html_file}")
+
+    html = html_file.read_text(encoding="utf-8")
+    used_assets = extract_used_assets(html)
+    manifest_index = _load_manifest_index(project_root)
+
+    offending: list[dict[str, Any]] = []
+    for rel_path in used_assets:
+        record = manifest_index.get(rel_path)
+        if record is None:
+            offending.append(
+                {
+                    "file": rel_path,
+                    "sha256": None,
+                    "source_url": None,
+                    "rights_confirmed_for_preview": False,
+                    "reason": "missing_from_manifest",
+                }
+            )
+            continue
+
+        confirmed = record.get("rights_confirmed_for_preview") is True
+        if not confirmed:
+            offending.append(
+                {
+                    "file": rel_path,
+                    "sha256": record.get("sha256"),
+                    "source_url": (
+                        record.get("source_url")
+                        or record.get("original_post_url")
+                        or record.get("source_post_url")
+                        or record.get("url")
+                    ),
+                    "rights_confirmed_for_preview": False,
+                    "reason": "rights_confirmed_for_preview is false",
+                }
+            )
+
+    return offending
+
+
+def _build_ghl_snippet(html: str, scope_id: str) -> str:
+    """Convert approved standalone HTML into a scoped GoHighLevel snippet with no html/head/body."""
+    soup = BeautifulSoup(html, "html.parser")
+    styles = [tag.decode_contents() for tag in soup.find_all("style")]
+    scripts = [tag.decode_contents() for tag in soup.find_all("script")]
+
+    body = soup.body
+    if body is not None:
+        for s in body.find_all("script"):
+            s.decompose()
+        body_inner = "".join(str(child) for child in body.contents).strip()
+    else:
+        body_inner = html.strip()
+
+    parts: list[str] = [f'<div id="{scope_id}" class="ev-ghl-scope">']
+    if styles:
+        combined_css = "\n".join(s.strip() for s in styles if s.strip())
+        parts.append(f"<style>\n{combined_css}\n</style>")
+    parts.append(body_inner)
+    if scripts:
+        combined_js = "\n".join(s.strip() for s in scripts if s.strip())
+        if combined_js:
+            parts.append(f"<script>\n(function() {{\n{combined_js}\n}})();\n</script>")
+    parts.append("</div>\n")
+    return "\n".join(parts)
+
+
+def export_release(
+    project_folder: str | Path,
+    *,
+    source_html_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Build delivery/approved-homepage.html and delivery/ghl-ready.html after rights gate."""
+    project_root = Path(project_folder).resolve()
+    if not project_root.is_dir():
+        raise ValueError("Project folder does not exist")
+
+    delivery_dir = project_root / "delivery"
+    approved_out = delivery_dir / "approved-homepage.html"
+    ghl_out = delivery_dir / "ghl-ready.html"
+
+    # Non-negotiable rule: Approved releases under delivery/ are immutable.
+    if approved_out.exists() or ghl_out.exists():
+        return {
+            "status": "blocked_immutable_release",
+            "approved_built": False,
+            "ghl_built": False,
+            "offending_assets": [],
+            "reason": "Approved release already exists under delivery/ and is immutable",
+        }
+
+    html_file = (
+        Path(source_html_path).resolve()
+        if source_html_path is not None
+        else (project_root / "website" / "index.html")
+    )
+    if not html_file.is_file():
+        raise ValueError(f"Source HTML file not found: {html_file}")
+
+    html = html_file.read_text(encoding="utf-8")
+    used_assets = extract_used_assets(html)
+    offending = check_used_asset_rights(project_root, source_html_path=html_file)
+
+    if offending:
+        return {
+            "status": "blocked_unconfirmed_rights",
+            "approved_built": False,
+            "ghl_built": False,
+            "offending_assets": offending,
+            "used_assets": used_assets,
+        }
+
+    manifest_index = _load_manifest_index(project_root)
+    selected_manifest = [manifest_index[p] for p in used_assets if p in manifest_index]
+
+    html_sha = hashlib.sha256(html.encode("utf-8")).hexdigest()
+    scope_id = f"ev-ghl-{html_sha[:10]}"
+    ghl_html = _build_ghl_snippet(html, scope_id)
+    ghl_sha = hashlib.sha256(ghl_html.encode("utf-8")).hexdigest()
+
+    retained_payload = {
+        "approved": True,
+        "assets": used_assets,
+    }
+    release_payload = {
+        "released_at": datetime.now(UTC).isoformat(),
+        "approved_homepage_sha256": html_sha,
+        "ghl_ready_sha256": ghl_sha,
+        "used_assets": used_assets,
+    }
+
+    _atomic_write_text(approved_out, html)
+    _atomic_write_text(ghl_out, ghl_html)
+    _atomic_write_text(
+        delivery_dir / "retained-assets.json",
+        json.dumps(retained_payload, indent=2),
+    )
+    _atomic_write_text(
+        delivery_dir / "asset-manifest.json",
+        json.dumps(selected_manifest, indent=2),
+    )
+    _atomic_write_text(
+        delivery_dir / "release-manifest.json",
+        json.dumps(release_payload, indent=2),
+    )
+
+    return {
+        "status": "exported",
+        "approved_built": True,
+        "ghl_built": True,
+        "offending_assets": [],
+        "used_assets": used_assets,
+        "outputs": {
+            "approved_html": "delivery/approved-homepage.html",
+            "ghl_html": "delivery/ghl-ready.html",
+            "retained_assets": "delivery/retained-assets.json",
+            "asset_manifest": "delivery/asset-manifest.json",
+            "release_manifest": "delivery/release-manifest.json",
+        },
+        "checksums": {
+            "delivery/approved-homepage.html": html_sha,
+            "delivery/ghl-ready.html": ghl_sha,
+        },
+    }
+
+
+def run_cli(argv: Sequence[str] | None = None) -> dict[str, Any]:
+    parser = argparse.ArgumentParser(
+        description="Export approved standalone HTML and GHL snippet after verifying asset rights."
+    )
+    parser.add_argument("--project", required=True, help="Path to project directory")
+    parser.add_argument("--source-html", default=None, help="Optional path to source HTML")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    return export_release(args.project, source_html_path=args.source_html)
+
+
+def main() -> None:
+    print(json.dumps(run_cli(), indent=2))
+
+
+if __name__ == "__main__":
+    main()
+
