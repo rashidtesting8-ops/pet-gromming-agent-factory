@@ -11,8 +11,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from engine.contracts import atomic_write_json
-
 WIDTHS: tuple[int, ...] = (1440, 1024, 768, 390, 360)
 
 
@@ -89,7 +87,7 @@ def check_local_html(
         ),
         "human_visual_approval_required": True,
     }
-    atomic_write_json(out / "report.json", report, ensure_ascii=True)
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf8")
     return report
 
 

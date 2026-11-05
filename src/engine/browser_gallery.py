@@ -17,7 +17,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from engine.collector import collect_page_text, download_one, grab_media, safe_url
-from engine.contracts import atomic_write_json
 
 
 def render_gallery(
@@ -68,7 +67,7 @@ def render_gallery(
         ],
     }
     path = project_path / "research/browser-gallery-candidates.json"
-    atomic_write_json(path, out, ensure_ascii=False)
+    path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf8")
     result: dict[str, Any] = {
         "saved_to": str(path),
         "candidate_count": len(out["rendered_media_candidates"]),
@@ -104,7 +103,7 @@ def render_gallery(
                 rows.append(row)
                 added.append(row)
                 known_urls.add(item["url"])
-        atomic_write_json(manifest, rows, ensure_ascii=False)
+        manifest.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf8")
         result["assets_saved"] = sum(r["status"] == "downloaded" for r in added)
         result["bytes_downloaded"] = total
         result["blocked_or_failed"] = sum(
@@ -124,4 +123,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

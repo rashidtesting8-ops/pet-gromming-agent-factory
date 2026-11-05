@@ -15,8 +15,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from engine.contracts import atomic_write_json
-
 ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".mp4", ".webm", ".mov"}
 
 
@@ -51,22 +49,19 @@ def import_media(
         dst = target / name
         if not dst.exists():
             shutil.copy2(src, dst)
-        now_iso = datetime.now(UTC).isoformat()
         row: dict[str, Any] = {
             "file": dst.relative_to(root).as_posix(),
             "platform": platform,
-            "source_url": source_url,
             "source_post_url": source_url,
             "sha256": sha,
             "rights_confirmed_for_preview": bool(rights_confirmed),
             "ownership_verified": False,
-            "captured_at": now_iso,
-            "imported_at": now_iso,
+            "imported_at": datetime.now(UTC).isoformat(),
         }
-        if not any(r.get("sha256") == sha for r in rows):
+        if not any(r["sha256"] == sha for r in rows):
             rows.append(row)
         imported.append(row)
-    atomic_write_json(provenance_path, rows, ensure_ascii=True)
+    provenance_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
     return imported
 
 
@@ -98,4 +93,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

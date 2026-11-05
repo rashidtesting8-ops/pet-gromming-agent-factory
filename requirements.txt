@@ -1,7 +1,5 @@
-beautifulsoup4==4.13.3
-requests==2.32.3
-Pillow==11.1.0
-fastapi==0.115.11
-uvicorn==0.34.0
-pydantic==2.10.6
-
+beautifulsoup4>=4.12,<5
+requests>=2.31,<3
+Pillow>=10,<13
+fastapi>=0.115,<1
+uvicorn>=0.32,<1

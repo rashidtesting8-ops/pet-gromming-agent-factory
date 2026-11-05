@@ -22,8 +22,6 @@ from urllib.parse import urlparse
 
 from PIL import Image, UnidentifiedImageError
 
-from engine.contracts import atomic_write_json
-
 ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".mp4", ".webm", ".mov"}
 SOCIAL_HOSTS = {
     "instagram": {"instagram.com", "www.instagram.com"},
@@ -191,12 +189,10 @@ def collect_social(
             target = dest / name
             shutil.copyfile(src, target)
             known_hashes.add(sha)
-            now_iso = datetime.now(UTC).isoformat()
             rows.append(
                 {
                     "file": target.relative_to(project_path).as_posix(),
                     "platform": platform,
-                    "source_url": url,
                     "source_profile_url": url,
                     "source_post_url": None,
                     "post_date": None,
@@ -206,13 +202,12 @@ def collect_social(
                     "bytes": len(blob),
                     "rights_confirmed_for_preview": False,
                     "ownership_verified": False,
-                    "captured_at": now_iso,
-                    "downloaded_at": now_iso,
+                    "downloaded_at": datetime.now(UTC).isoformat(),
                 }
             )
     if rows:
         existing.extend(rows)
-        atomic_write_json(manifest_path, existing, ensure_ascii=True)
+        manifest_path.write_text(json.dumps(existing, indent=2), encoding="utf8")
     # Date, ownership, source-post URL cannot be assumed from a direct file URL.
     return {
         "status": "collected_needs_review" if rows else "review_needed",
@@ -253,4 +248,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

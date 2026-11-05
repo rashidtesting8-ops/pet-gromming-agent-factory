@@ -26,8 +26,6 @@ import requests
 from bs4 import BeautifulSoup, Tag
 from PIL import Image, UnidentifiedImageError
 
-from engine.contracts import atomic_write_bytes, atomic_write_json
-
 AGENT = "PetSiteResearchBot"
 USER_AGENT = "PetSiteResearchBot/0.2 (+respectful-preview-audit)"
 DEFAULT_MAX_MEDIA = 80
@@ -145,7 +143,7 @@ def robots_allowed(
             )
             try:
                 if r.status_code in (401, 403) or r.status_code >= 500:
-                    cache[origin] = False
+                    cache[origin] = False  # inaccessible / temporarily unavailable: do not crawl
                 elif r.status_code in (404, 410):
                     cache[origin] = None
                 elif r.ok:
@@ -204,33 +202,36 @@ def grab_media(soup: BeautifulSoup, page_url: str) -> list[dict[str, str]]:
         vals: list[str] = []
         for k in keys:
             if tag.has_attr(k):
-                vals.append(_attr_str(tag.get(k)))
+                vals.append(_attr_str(tag[k]))
         for k in ("srcset", "data-srcset"):
             if tag.has_attr(k):
-                vals.append(choose_srcset(_attr_str(tag.get(k))))
-        if tag.name == "a" and tag.has_attr("href"):
-            href_str = _attr_str(tag.get("href"))
-            if Path(urlparse(href_str).path.lower()).suffix in MEDIA_EXTENSIONS:
-                vals.append(href_str)
-        if tag.name == "meta":
-            prop = _attr_str(tag.get("property")).lower()
-            if prop in ("og:image", "og:video", "twitter:image"):
-                vals.append(_attr_str(tag.get("content")))
+                vals.append(choose_srcset(_attr_str(tag[k])))
+        if (
+            tag.name == "a"
+            and tag.has_attr("href")
+            and Path(urlparse(_attr_str(tag["href"])).path.lower()).suffix in MEDIA_EXTENSIONS
+        ):
+            vals.append(_attr_str(tag["href"]))
+        if tag.name == "meta" and _attr_str(tag.get("property", "")).lower() in (
+            "og:image",
+            "og:video",
+            "twitter:image",
+        ):
+            vals.append(_attr_str(tag.get("content", "")))
         for raw in vals:
-            url = candidate_url(raw, page_url)
+            url = candidate_url(str(raw), page_url)
             if url:
                 found.append(
                     {
                         "url": url,
                         "source_page": page_url,
-                        "alt": _attr_str(tag.get("alt")),
+                        "alt": _attr_str(tag.get("alt", "")),
                         "discovery": tag.name,
                     }
                 )
     # Inline CSS assets such as branded background images.
     for tag in soup.select("[style]"):
-        style_val = _attr_str(tag.get("style"))
-        for raw in re.findall(r"url\(\s*['\"]?([^)'\"]+)", style_val, re.I):
+        for raw in re.findall(r"url\(\s*['\"]?([^)'\"]+)", _attr_str(tag.get("style", "")), re.I):
             url = candidate_url(raw, page_url)
             if url:
                 found.append(
@@ -281,8 +282,10 @@ def download_one(
         limit = 40 * 1024 * 1024 if ctype.startswith("video/") else 16 * 1024 * 1024
         if remaining_bytes is not None:
             limit = min(limit, remaining_bytes)
-        content_len = res.headers.get("Content-Length", "")
-        if content_len.isdigit() and int(content_len) > limit:
+        if (
+            res.headers.get("Content-Length", "").isdigit()
+            and int(res.headers["Content-Length"]) > limit
+        ):
             return {**candidate, "status": "too_large", "limit_bytes": limit}
         blob = bytearray()
         for chunk in res.iter_content(chunk_size=65536):
@@ -304,7 +307,7 @@ def download_one(
         source_hint = Path(unquote(urlparse(res.url).path)).stem
         fname = slugify(str(candidate.get("alt", "")) or source_hint)[:36] + "-" + sha[:12] + ext
         out = folder / fname
-        atomic_write_bytes(out, bytes(blob))
+        out.write_bytes(blob)
         rel = "assets/website/" + fname
         seen_sha[sha] = rel
         return {
@@ -315,8 +318,6 @@ def download_one(
             "sha256": sha,
             "dimensions": dimensions,
             "mime": ctype,
-            "captured_at": now(),
-            "rights_confirmed_for_preview": False,
         }
     except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
         return {**candidate, "status": "failed", "error": str(e)[:240]}
@@ -337,7 +338,7 @@ def collect(
         raise ValueError("max_pages must be 1..40 and max_media 1..120")
     safe_url(site_url, allow_private=allow_private)
     parsed = urlparse(site_url)
-    name = slugify((parsed.hostname or "website").removeprefix("www."))
+    name = slugify((parsed.hostname or "").removeprefix("www."))
     folder = Path(base_folder) / name
     folder.mkdir(parents=True, exist_ok=True)
     for sub in (
@@ -397,15 +398,15 @@ def collect(
                 if len(payload) > 4 * 1024 * 1024:
                     problems.append({"url": page, "reason": "html_too_large"})
                     continue
-                encoding = res.encoding or "utf8"
-                html = payload.decode(encoding, errors="replace")
+                res.encoding = res.encoding or "utf8"
+                html = payload.decode(res.encoding, errors="replace")
             finally:
                 res.close()
             soup = BeautifulSoup(html, "html.parser")
             title = soup.title.get_text(" ", strip=True) if soup.title else ""
             description_tag = soup.find("meta", attrs={"name": re.compile("^description$", re.I)})
             description = (
-                _attr_str(description_tag.get("content"))
+                _attr_str(description_tag.get("content", ""))
                 if isinstance(description_tag, Tag)
                 else ""
             )
@@ -414,7 +415,7 @@ def collect(
                 candidates.setdefault(m["url"], m)
             links: list[str] = []
             for a in soup.select("a[href]"):
-                target = candidate_url(_attr_str(a.get("href")), res.url)
+                target = candidate_url(_attr_str(a["href"]), res.url)
                 if not target:
                     continue
                 host = (urlparse(target).hostname or "").lower()
@@ -471,6 +472,7 @@ def collect(
             allow_private=allow_private,
             remaining_bytes=MAX_SITE_BYTES - total_bytes,
         )
+        # Count all items actually present, including assets from earlier runs.
         total_bytes += int(row.get("bytes", 0))
         assets.append(row)
     status: dict[str, Any] = {
@@ -492,14 +494,22 @@ def collect(
             "All factual business claims require later verification before publication.",
         ],
     }
-    atomic_write_json(folder / "research/pages.json", pages, ensure_ascii=False)
-    atomic_write_json(folder / "research/asset-manifest.json", assets, ensure_ascii=False)
-    atomic_write_json(
-        folder / "research/social-sources.json",
-        {**social, "collection_status": "needs_authorized_collection_or_manual_upload"},
-        ensure_ascii=True,
+    (folder / "research/pages.json").write_text(
+        json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    atomic_write_json(folder / "research/run-summary.json", status, ensure_ascii=True)
+    (folder / "research/asset-manifest.json").write_text(
+        json.dumps(assets, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    (folder / "research/social-sources.json").write_text(
+        json.dumps(
+            {**social, "collection_status": "needs_authorized_collection_or_manual_upload"},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (folder / "research/run-summary.json").write_text(
+        json.dumps(status, indent=2), encoding="utf-8"
+    )
     return status
 
 
