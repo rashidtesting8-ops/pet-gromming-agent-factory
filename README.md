@@ -123,15 +123,23 @@ pet-gromming-agent-factory/
 │   ├── exporter.py                   # Standalone HTML + scoped GHL snippet exporter with rights gate
 │   ├── cleanup.py                    # Post-approval CRC/SHA-256 verified zip archiver & pruner
 │   └── service.py                    # Local FastAPI + SQLite job queue for n8n orchestration
-├── app/                              # Backward-compatible CLI/module shims re-exporting src/engine/*
+├── app/                              # Application modules & backward-compatible CLI shims
+│   ├── schema.sql                    # Relational SQLite schema (projects, job_runs, asset_provenance, business_facts)
+│   ├── db.py                         # SQLite WAL + BEGIN IMMEDIATE transaction layer & Pydantic v2 models
+│   ├── fact_extractor.py             # Prompt-injection-hardened, exact-substring business fact extractor
+│   ├── qa_engine.py                  # Automated 5-viewport Playwright QA runner (WCAG AA contrast, 404s, overflow)
+│   └── ghl_exporter.py               # GoHighLevel custom code exporter (CSS selector scoping + IIFE/MutationObserver JS)
 └── tests/
     ├── test_contracts.py             # Pydantic v2 contract validation tests
-    ├── test_collector.py             # Website crawl, HTML snapshot SHA-256, and asset provenance tests
+    ├── test_collector.py             # Crawl, HTML snapshot SHA-256, prompt-injection & fact extraction tests
+    ├── test_db_concurrency.py        # SQLite WAL PRAGMA, CRUD, and 10-thread concurrent write tests
     ├── test_ssrf_rebinding.py        # 28 SSRF, IP encoding, redirect, and DNS-rebinding tests
     ├── test_local_preview.py         # Bad/placeholder CTA link, mobile-menu, and reduced-motion QA tests
+    ├── test_qa_engine.py             # 5-breakpoint Playwright QA, WCAG contrast, overflow & teardown tests
     ├── test_social_collect.py        # Subprocess dry-run metadata, EXIF/GPS strip, failure classification tests
     ├── test_import_meta_export.py    # Instagram/Facebook export parsing, zip-bomb & traversal guard tests
     ├── test_exporter_release_gate.py # Release gate blocking unconfirmed/missing assets & GHL export tests
+    ├── test_ghl_export.py            # CSS selector scoping, :root var migration, and JS global leakage tests
     └── test_v2.py                    # Core v2 regression suite (hosts, date limits, archive/prune)
 ```
 
@@ -315,4 +323,4 @@ uv run ruff check . && uv run pyright && uv run pytest
 
 - **`ruff`**: Enforces `E`, `F`, `I`, `B`, `UP` rules at `line-length = 100` targeting Python 3.12.
 - **`pyright`**: Runs static type analysis across `src/` and `tests/` (`0 errors, 0 warnings`).
-- **`pytest`**: Runs 63 automated unit and integration tests covering contracts, HTML snapshot provenance, SSRF/DNS rebinding defense, social collection hardening, Meta export parsing/zip-bomb guards, multi-viewport preview QA, exporter release gates, and verified archive cleanup.
+- **`pytest`**: Runs 75 automated unit and integration tests covering contracts, SQLite WAL 10-thread concurrency, HTML snapshot provenance, prompt-injection neutralization, exact-substring fact extraction, SSRF/DNS rebinding defense, social collection hardening, Meta export parsing/zip-bomb guards, 5-viewport Playwright & WCAG AA contrast QA, exporter release gates, GoHighLevel CSS/JS scoping, and verified archive cleanup.
