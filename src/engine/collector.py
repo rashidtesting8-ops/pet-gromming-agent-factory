@@ -269,16 +269,21 @@ def download_one(
     allow_private: bool = False,
     remaining_bytes: int | None = None,
 ) -> dict[str, Any]:
+    base = {
+        **candidate,
+        "captured_at": now(),
+        "rights_confirmed_for_preview": False,
+    }
     url = str(candidate["url"])
     if not robots_allowed(session, url, robots_cache, allow_private=allow_private):
-        return {**candidate, "status": "blocked_by_robots"}
+        return {**base, "status": "blocked_by_robots"}
     res: requests.Response | None = None
     try:
         res = response_get(session, url, allow_private=allow_private, stream=True)
         res.raise_for_status()
         ctype, ext = media_type(res.headers.get("content-type", ""), res.url)
         if not ctype or not ext:
-            return {**candidate, "status": "not_recognized_media"}
+            return {**base, "status": "not_recognized_media"}
         limit = 40 * 1024 * 1024 if ctype.startswith("video/") else 16 * 1024 * 1024
         if remaining_bytes is not None:
             limit = min(limit, remaining_bytes)
@@ -286,24 +291,24 @@ def download_one(
             res.headers.get("Content-Length", "").isdigit()
             and int(res.headers["Content-Length"]) > limit
         ):
-            return {**candidate, "status": "too_large", "limit_bytes": limit}
+            return {**base, "status": "too_large", "limit_bytes": limit}
         blob = bytearray()
         for chunk in res.iter_content(chunk_size=65536):
             blob.extend(chunk)
             if len(blob) > limit:
-                return {**candidate, "status": "too_large", "limit_bytes": limit}
+                return {**base, "status": "too_large", "limit_bytes": limit}
         if not blob:
-            return {**candidate, "status": "empty"}
+            return {**base, "status": "empty"}
         dimensions: list[int] | None = None
         if ctype.startswith("image/") and ext != ".svg":
             try:
                 with Image.open(io.BytesIO(blob)) as im:
                     dimensions = [im.width, im.height]
             except (UnidentifiedImageError, OSError, ValueError):
-                return {**candidate, "status": "invalid_image"}
+                return {**base, "status": "invalid_image"}
         sha = hashlib.sha256(blob).hexdigest()
         if sha in seen_sha:
-            return {**candidate, "status": "duplicate", "same_as": seen_sha[sha], "sha256": sha}
+            return {**base, "status": "duplicate", "same_as": seen_sha[sha], "sha256": sha}
         source_hint = Path(unquote(urlparse(res.url).path)).stem
         fname = slugify(str(candidate.get("alt", "")) or source_hint)[:36] + "-" + sha[:12] + ext
         out = folder / fname
@@ -311,7 +316,7 @@ def download_one(
         rel = "assets/website/" + fname
         seen_sha[sha] = rel
         return {
-            **candidate,
+            **base,
             "status": "downloaded",
             "file": rel,
             "bytes": len(blob),
@@ -320,7 +325,7 @@ def download_one(
             "mime": ctype,
         }
     except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
-        return {**candidate, "status": "failed", "error": str(e)[:240]}
+        return {**base, "status": "failed", "error": str(e)[:240]}
     finally:
         if res is not None:
             res.close()
@@ -347,6 +352,7 @@ def collect(
         "assets/facebook",
         "assets/optimized",
         "research",
+        "research/snapshots",
         "design",
         "qa",
         "website",
@@ -388,6 +394,7 @@ def collect(
             res = response_get(sess, page, allow_private=allow_private, stream=True)
             try:
                 res.raise_for_status()
+                status_code = res.status_code
                 if "html" not in res.headers.get("content-type", "").lower():
                     continue
                 payload = bytearray()
@@ -402,6 +409,9 @@ def collect(
                 html = payload.decode(res.encoding, errors="replace")
             finally:
                 res.close()
+            fetched_at = now()
+            page_sha = hashlib.sha256(payload).hexdigest()
+            (folder / "research/snapshots" / f"{page_sha}.html").write_bytes(payload)
             soup = BeautifulSoup(html, "html.parser")
             title = soup.title.get_text(" ", strip=True) if soup.title else ""
             description_tag = soup.find("meta", attrs={"name": re.compile("^description$", re.I)})
@@ -445,6 +455,9 @@ def collect(
             pages.append(
                 {
                     "url": res.url,
+                    "sha256": page_sha,
+                    "fetched_at": fetched_at,
+                    "status_code": status_code,
                     "title": title,
                     "description": description,
                     "text": body_page["text"],
@@ -458,10 +471,24 @@ def collect(
     total_bytes = 0
     for item in list(candidates.values())[:max_media]:
         if time.monotonic() > deadline:
-            assets.append({**item, "status": "skipped_crawl_time_limit"})
+            assets.append(
+                {
+                    **item,
+                    "status": "skipped_crawl_time_limit",
+                    "captured_at": now(),
+                    "rights_confirmed_for_preview": False,
+                }
+            )
             continue
         if total_bytes >= MAX_SITE_BYTES:
-            assets.append({**item, "status": "skipped_site_storage_limit"})
+            assets.append(
+                {
+                    **item,
+                    "status": "skipped_site_storage_limit",
+                    "captured_at": now(),
+                    "rights_confirmed_for_preview": False,
+                }
+            )
             continue
         row = download_one(
             sess,

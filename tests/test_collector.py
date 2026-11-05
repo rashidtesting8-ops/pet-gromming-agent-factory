@@ -1,8 +1,10 @@
+import hashlib
 import io
 import json
 import tempfile
 import threading
 import unittest
+from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -73,6 +75,26 @@ class CollectorTests(unittest.TestCase):
                 folder = Path(str(result["project_folder"]))
                 pages = json.loads((folder / "research/pages.json").read_text(encoding="utf-8"))
                 self.assertIn("Hand scissoring", pages[0]["text"])
+                for page in pages:
+                    self.assertIn("url", page)
+                    self.assertIn("sha256", page)
+                    self.assertIn("fetched_at", page)
+                    self.assertEqual(page["status_code"], 200)
+                    snap = folder / "research" / "snapshots" / f"{page['sha256']}.html"
+                    self.assertTrue(snap.is_file())
+                    self.assertEqual(
+                        hashlib.sha256(snap.read_bytes()).hexdigest(),
+                        page["sha256"],
+                    )
+                assets = json.loads(
+                    (folder / "research/asset-manifest.json").read_text(encoding="utf-8")
+                )
+                self.assertGreaterEqual(len(assets), 2)
+                for row in assets:
+                    self.assertIn("captured_at", row)
+                    parsed_dt = datetime.fromisoformat(row["captured_at"])
+                    self.assertIsNotNone(parsed_dt.tzinfo)
+                    self.assertIs(row["rights_confirmed_for_preview"], False)
                 social = json.loads(
                     (folder / "research/social-sources.json").read_text(encoding="utf-8")
                 )
