@@ -1,0 +1,327 @@
+"""Human Review Package, Release Freezing, and Approval-Gated Export for EditVista.
+
+Implements:
+- `generate_review_summary(project_id, ...)`: Aggregates verified vs. `needs_review` fact
+  metrics, curated asset `rights_confirmed_for_preview` flags, 5-viewport Playwright
+  screenshot relative paths, visual critique status, and technical QA status.
+- `export_approved_deliverables(project_folder, ...)`: Conditionally locks compilation of
+  `delivery/approved-homepage.html` and `delivery/ghl-ready.html` unless `is_approved=True`
+  or a non-empty operator `approval_token` is supplied.
+- `approve_and_freeze_release(project_id, operator_name, notes, ...)`: Computes a
+  deterministic SHA-256 checksum tree across `website/` and `delivery/`, writes
+  `delivery/release-manifest.json`, compiles `projects/_archives/<business-id>-approved.zip`,
+  and atomically updates the project status to `approved` in SQLite via `immediate_transaction`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.cleanup import make_archive
+from app.db import ProjectRecord, connect_db, get_project, init_db, upsert_project
+from app.ghl_exporter import export_ghl_snippet
+
+
+class ReleaseApprovalGateError(PermissionError):
+    """Raised when attempting to export final deliverables without human approval."""
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _atomic_write_text(target: Path, content: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _resolve_project_root(
+    project_id_or_path: str | Path,
+    projects_dir: str | Path = "./projects",
+) -> Path:
+    candidate = Path(project_id_or_path)
+    if candidate.is_dir():
+        return candidate.resolve()
+    return (Path(projects_dir).resolve() / str(project_id_or_path)).resolve()
+
+
+class ReleaseManifest(BaseModel):
+    """Immutable release manifest saved to `delivery/release-manifest.json`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str
+    version_hash: str
+    approved_at: datetime = Field(default_factory=_utc_now)
+    operator_name: str
+    notes: str
+    checksum_tree: dict[str, str]
+    asset_signatures: dict[str, str]
+
+
+def generate_review_summary(
+    project_id: str,
+    *,
+    projects_dir: str | Path = "./projects",
+) -> dict[str, Any]:
+    """Assemble the side-by-side human review package summary for a project."""
+    project_root = _resolve_project_root(project_id, projects_dir)
+    if not project_root.is_dir():
+        raise ValueError(f"Project directory not found: {project_root}")
+
+    # 1. Fact verification metrics
+    facts_path = project_root / "research" / "business-facts.json"
+    verified_count = 0
+    needs_review_count = 0
+    if facts_path.is_file():
+        facts_payload = json.loads(facts_path.read_text(encoding="utf-8"))
+        for fact in facts_payload.get("facts", []):
+            if bool(fact.get("is_verified")) and fact.get("status") == "verified":
+                verified_count += 1
+            else:
+                needs_review_count += 1
+
+    # 2. Curated assets & rights_confirmed_for_preview status
+    asset_manifest_path = project_root / "research" / "asset-manifest.json"
+    curated_assets: list[dict[str, Any]] = []
+    if asset_manifest_path.is_file():
+        raw_assets = json.loads(asset_manifest_path.read_text(encoding="utf-8"))
+        if isinstance(raw_assets, list):
+            for item in raw_assets:
+                if isinstance(item, dict) and item.get("file"):
+                    curated_assets.append(
+                        {
+                            "file": str(item["file"]),
+                            "sha256": str(item.get("sha256", "")),
+                            "source_url": str(item.get("url") or item.get("source_url") or ""),
+                            "rights_confirmed_for_preview": bool(
+                                item.get("rights_confirmed_for_preview", False)
+                            ),
+                        }
+                    )
+
+    # 3. Relative paths to 5-viewport Playwright screenshots
+    screenshots_dir = project_root / "qa" / "screenshots"
+    screenshots: list[str] = []
+    if screenshots_dir.is_dir():
+        for width in (1440, 1024, 768, 390, 360):
+            shot = screenshots_dir / f"{width}px.png"
+            if shot.is_file():
+                screenshots.append(shot.relative_to(project_root).as_posix())
+
+    # 4. Technical QA & Visual Critique statuses
+    qa_report_path = project_root / "qa" / "qa-report.json"
+    technical_qa_passed = False
+    if qa_report_path.is_file():
+        qa_data = json.loads(qa_report_path.read_text(encoding="utf-8"))
+        technical_qa_passed = bool(qa_data.get("passed", False))
+
+    critique_path = project_root / "qa" / "visual-critique.json"
+    visual_critique_status = "pending"
+    visual_defects: list[dict[str, Any]] = []
+    if critique_path.is_file():
+        crit_data = json.loads(critique_path.read_text(encoding="utf-8"))
+        visual_critique_status = str(crit_data.get("status", "pending"))
+        visual_defects = list(crit_data.get("defects", []))
+
+    return {
+        "project_id": project_root.name,
+        "fact_metrics": {
+            "verified_count": verified_count,
+            "needs_review_count": needs_review_count,
+            "total_facts": verified_count + needs_review_count,
+        },
+        "assets": curated_assets,
+        "screenshots": screenshots,
+        "technical_qa_passed": technical_qa_passed,
+        "visual_critique_status": visual_critique_status,
+        "visual_defects": visual_defects,
+    }
+
+
+def export_approved_deliverables(
+    project_folder: str | Path,
+    *,
+    is_approved: bool = False,
+    approval_token: str | None = None,
+) -> tuple[Path, Path]:
+    """Compile approved-homepage.html and ghl-ready.html behind the human approval gate."""
+    has_valid_token = isinstance(approval_token, str) and len(approval_token.strip()) >= 4
+    if not is_approved and not has_valid_token:
+        raise ReleaseApprovalGateError(
+            "Deliverable export is locked: require is_approved=True or valid approval_token"
+        )
+
+    project_root = Path(project_folder).resolve()
+    website_dir = project_root / "website"
+    index_path = website_dir / "index.html"
+    if not index_path.is_file():
+        raise ValueError(f"Missing website/index.html in {project_root}")
+
+    css_path = website_dir / "css" / "styles.css"
+    js_path = website_dir / "js" / "main.js"
+
+    html_doc = index_path.read_text(encoding="utf-8")
+    if css_path.is_file():
+        css_text = css_path.read_text(encoding="utf-8")
+        html_doc = html_doc.replace(
+            '<link rel="stylesheet" href="css/styles.css">',
+            f"<style>\n{css_text}\n</style>",
+        )
+    if js_path.is_file():
+        js_text = js_path.read_text(encoding="utf-8")
+        html_doc = html_doc.replace(
+            '<script src="js/main.js"></script>',
+            f"<script>\n{js_text}\n</script>",
+        )
+
+    approved_html_path = project_root / "delivery" / "approved-homepage.html"
+    _atomic_write_text(approved_html_path, html_doc)
+
+    export_ghl_snippet(project_root, business_id=project_root.name)
+    ghl_ready_path = project_root / "delivery" / "ghl-ready.html"
+
+    # Ensure delivery/retained-assets.json exists and is marked approved=True
+    retained_path = project_root / "delivery" / "retained-assets.json"
+    retained_assets: list[str] = []
+    if retained_path.is_file():
+        existing_ret = json.loads(retained_path.read_text(encoding="utf-8"))
+        retained_assets = [str(a) for a in existing_ret.get("assets", [])]
+    else:
+        opt_dir = project_root / "assets" / "optimized"
+        if opt_dir.is_dir():
+            for f in sorted(opt_dir.iterdir()):
+                if f.is_file() and not f.is_symlink():
+                    retained_assets.append(f.relative_to(project_root).as_posix())
+
+    _atomic_write_text(
+        retained_path,
+        json.dumps({"approved": True, "assets": retained_assets}, indent=2),
+    )
+
+    return approved_html_path, ghl_ready_path
+
+
+def compute_release_checksum_tree(project_root: Path) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Compute a deterministic SHA-256 tree across website/, delivery/, and retained assets."""
+    checksum_tree: dict[str, str] = {}
+    for folder_name in ("website", "delivery"):
+        folder = project_root / folder_name
+        if not folder.is_dir():
+            continue
+        for p in sorted(folder.rglob("*")):
+            if not p.is_file() or p.is_symlink():
+                continue
+            rel = p.relative_to(project_root).as_posix()
+            if rel == "delivery/release-manifest.json":
+                continue
+            checksum_tree[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+
+    asset_signatures: dict[str, str] = {}
+    retained_path = project_root / "delivery" / "retained-assets.json"
+    if retained_path.is_file():
+        ret_data = json.loads(retained_path.read_text(encoding="utf-8"))
+        for rel_asset in sorted(set(str(x) for x in ret_data.get("assets", []))):
+            asset_file = project_root / rel_asset
+            if asset_file.is_file() and not asset_file.is_symlink():
+                asset_signatures[rel_asset] = hashlib.sha256(asset_file.read_bytes()).hexdigest()
+
+    tree_hasher = hashlib.sha256()
+    for rel_path, file_sha in sorted(checksum_tree.items()):
+        tree_hasher.update(f"{rel_path}:{file_sha}\n".encode())
+    for rel_asset, asset_sha in sorted(asset_signatures.items()):
+        tree_hasher.update(f"asset:{rel_asset}:{asset_sha}\n".encode())
+
+    return tree_hasher.hexdigest(), checksum_tree, asset_signatures
+
+
+def approve_and_freeze_release(
+    project_id: str,
+    operator_name: str,
+    notes: str,
+    *,
+    projects_dir: str | Path = "./projects",
+    db_path: str | Path | None = None,
+) -> str:
+    """Freeze an immutable release hash, write manifest, build ZIP archive, and update SQLite."""
+    if not operator_name.strip():
+        raise ValueError("operator_name must not be empty")
+
+    project_root = _resolve_project_root(project_id, projects_dir)
+    if not project_root.is_dir():
+        raise ValueError(f"Project directory not found: {project_root}")
+
+    resolved_project_id = project_root.name
+    approval_token = hashlib.sha256(
+        f"{resolved_project_id}:{operator_name.strip()}:{notes.strip()}".encode()
+    ).hexdigest()[:16]
+
+    # 1. Unlock and compile delivery/approved-homepage.html and delivery/ghl-ready.html
+    export_approved_deliverables(
+        project_root,
+        is_approved=True,
+        approval_token=approval_token,
+    )
+
+    # 2. Compute deterministic SHA-256 checksum tree across website/ and delivery/
+    version_hash, checksum_tree, asset_signatures = compute_release_checksum_tree(project_root)
+
+    manifest = ReleaseManifest(
+        project_id=resolved_project_id,
+        version_hash=version_hash,
+        operator_name=operator_name.strip(),
+        notes=notes.strip(),
+        checksum_tree=checksum_tree,
+        asset_signatures=asset_signatures,
+    )
+    manifest_path = project_root / "delivery" / "release-manifest.json"
+    _atomic_write_text(manifest_path, manifest.model_dump_json(indent=2))
+
+    # 3. Compile immutable archive projects/_archives/<business-id>-approved.zip
+    make_archive(project_root)
+
+    # 4. Atomically set project status to 'approved' in SQLite via immediate_transaction
+    resolved_db = (
+        Path(db_path).resolve()
+        if db_path is not None
+        else (project_root.parent / "editvista.sqlite3")
+    )
+    conn = connect_db(resolved_db)
+    try:
+        init_db(conn)
+        existing = get_project(conn, resolved_project_id)
+        biz_name = existing.business_name if existing else resolved_project_id
+        primary_url = existing.primary_url if existing else f"https://{resolved_project_id}.local/"
+        upsert_project(
+            conn,
+            ProjectRecord(
+                project_id=resolved_project_id,
+                business_name=biz_name,
+                primary_url=primary_url,
+                status="approved",
+            ),
+        )
+    finally:
+        conn.close()
+
+    return version_hash
