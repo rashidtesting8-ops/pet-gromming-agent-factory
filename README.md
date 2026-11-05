@@ -1,123 +1,184 @@
-# Pet Grooming Website Builder Engine (EditVista)
+# Pet Grooming Website Builder Engine (`EditVista`)
 
-A local-first, provenance-driven Python engine for collecting, verifying, curating, auditing, and exporting bespoke pet grooming websites (standalone HTML + GoHighLevel-ready snippets).
+[![CI](https://github.com/rashidtesting8-ops/pet-gromming-agent-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/rashidtesting8-ops/pet-gromming-agent-factory/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
+![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright%20strict-success.svg)
+![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
 
-> **Status:** Prototype & testing engine (`Python 3.12`, `uv`, `Pydantic v2`). No paid hosting or external cloud database is required to run collection, local QA, or export workflows.
+A local-first, provenance-enforced, security-hardened asset collection, verification, QA, and release-export engine for **EditVista's Pet Grooming Website Builder**.
 
----
-
-## Core Engineering & Domain Principles
-
-Every module in this repository enforces the non-negotiable rules defined in [`AGENTS.md`](./AGENTS.md) and [`docs/DEVELOPER_BRIEF.md`](./docs/DEVELOPER_BRIEF.md):
-
-1. **Zero Fabrication:** Never invent business facts, logos, owner portraits, reviews, ratings, prices, discounts, or services. Missing or unverified claims default to `status="needs_review"`.
-2. **Untrusted External Input:** All text scraped from websites, social captions, or image metadata is treated strictly as **data**, never as instructions.
-3. **Full Claim & Asset Provenance:**
-   - Every [`Claim`](./src/engine/contracts/__init__.py) requires `source_url`, non-empty `source_text`, `verified`, `status` (`verified | needs_review | expired`), and timezone-aware `last_checked_at`.
-   - Every [`Asset`](./src/engine/contracts/__init__.py) records `source_url`, `sha256`, timezone-aware `captured_at`, and `rights_confirmed_for_preview` (defaults to `False`).
-   - Every fetched webpage's raw HTML is archived at `<project>/research/snapshots/<sha256>.html` and indexed in `research/pages.json`.
-4. **SSRF & DNS Rebinding Protection:** Website HTTP connections use a scoped `SafeHTTPAdapter` and custom socket dialer that resolves DNS **once** per hop, validates **all** returned records against private/loopback/link-local/CGNAT/metadata IP ranges (including IPv4-mapped IPv6 and hex/octal/integer IP literals), disables environment proxies (`trust_env = False`), and validates every redirect hop manually while preserving the original `Host` header and TLS SNI.
-5. **Privacy & EXIF/GPS Stripping:** Social media collection (`gallery-dl` subprocess) and Meta export imports strip all EXIF/GPS metadata on optimized image copies under `assets/optimized/` and scrub sensitive tokens from logs.
-6. **Mandatory Release Gate & Immutable Deliverables:** The exporter ([`src/engine/exporter.py`](./src/engine/exporter.py)) refuses to build `delivery/approved-homepage.html` or `delivery/ghl-ready.html` if **any** asset referenced in the page has `rights_confirmed_for_preview=False` or is missing from project manifests. Once created, approved releases under `delivery/` are immutable.
+Designed around strict factual provenance and defense-in-depth engineering: **no fabricated business facts, no unverified claims, no unconfirmed asset rights in deliverables, and zero hosting cost for local preview and multi-viewport QA.**
 
 ---
 
-## Repository Structure
+## Table of Contents
+
+1. [Core Engineering & Domain Invariants](#1-core-engineering--domain-invariants)
+2. [System Architecture & Pipeline](#2-system-architecture--pipeline)
+3. [Repository Layout](#3-repository-layout)
+4. [Security & Hardening Architecture](#4-security--hardening-architecture)
+5. [Quickstart (`uv` + Python 3.12)](#5-quickstart-uv--python-312)
+6. [Module & CLI Reference](#6-module--cli-reference)
+7. [Data Contracts & Project Workspace Schema](#7-data-contracts--project-workspace-schema)
+8. [n8n & Docker Orchestration](#8-n8n--docker-orchestration)
+9. [Quality Gates, Testing & CI](#9-quality-gates-testing--ci)
+
+---
+
+## 1. Core Engineering & Domain Invariants
+
+Every component in `src/engine/` enforces the non-negotiable rules defined in [`AGENTS.md`](AGENTS.md) and [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md):
+
+| Invariant | Enforcement Mechanism |
+| :--- | :--- |
+| **Zero Fabrication** | Missing or unsupported business facts, prices, services, or reviews are marked `status="needs_review"`—never invented. |
+| **Untrusted External Input** | All scraped HTML, social captions, and image metadata are treated strictly as **data**, never executable instructions. |
+| **Claim Provenance** | Every [`Claim`](src/engine/contracts/__init__.py) requires `source_url`, non-empty `source_text`, `snapshot_sha256`, `verified`, `status`, and timezone-aware `last_checked_at`. Raw HTML snapshots are archived at `research/snapshots/<sha256>.html`. |
+| **Asset Provenance & Rights Gate** | Every [`Asset`](src/engine/contracts/__init__.py) records `source_url`, `sha256`, timezone-aware `captured_at`, and defaults to `rights_confirmed_for_preview=False`. |
+| **Mandatory Exporter Release Gate** | [`exporter.py`](src/engine/exporter.py) refuses to build `delivery/approved-homepage.html` or `delivery/ghl-ready.html` if **any** referenced asset has `rights_confirmed_for_preview != True` or is missing from manifests, returning the full list of offending assets. |
+| **Immutable Releases** | Once exported under `delivery/`, approved releases cannot be overwritten (`status="blocked_immutable_release"`). |
+| **Atomic & Idempotent I/O** | Manifests, snapshots, and deliverables are written via temporary files + `os.replace` and deduplicated by `sha256`. |
+
+---
+
+## 2. System Architecture & Pipeline
+
+```mermaid
+flowchart LR
+    subgraph Collection["1. Provenance-First Collection"]
+        WC["Website Collector<br/>(collector.py)"]
+        BG["JS Gallery Scanner<br/>(browser_gallery.py)"]
+        SC["Social Subprocess Wrapper<br/>(social_collect.py)"]
+        ME["Meta Export Importer<br/>(import_meta_export.py)"]
+        SI["Manual Social Importer<br/>(import_social_media.py)"]
+    end
+
+    subgraph Storage["2. Project Workspace (<project>/)"]
+        SNAP["research/snapshots/<sha256>.html<br/>research/pages.json"]
+        MAN["research/asset-manifest.json<br/>research/social-media-manifest.json"]
+        OPT["assets/website/ | instagram/ | facebook/<br/>assets/optimized/ (EXIF/GPS stripped)"]
+    end
+
+    subgraph QA["3. Curation & Multi-Viewport QA"]
+        CS["Contact Sheet Generator<br/>(contact_sheet.py)"]
+        LP["5-Viewport Playwright + Static QA<br/>(local_preview.py)"]
+    end
+
+    subgraph Release["4. Release Gate & Archiving"]
+        EXP["Release Exporter & Rights Gate<br/>(exporter.py)"]
+        DEL["delivery/approved-homepage.html<br/>delivery/ghl-ready.html"]
+        CLN["SHA-256 Verified Archive & Prune<br/>(cleanup.py)"]
+    end
+
+    WC --> SNAP
+    WC --> MAN
+    BG --> MAN
+    SC --> MAN
+    SC --> OPT
+    ME --> MAN
+    ME --> OPT
+    SI --> MAN
+    MAN --> CS
+    OPT --> LP
+    LP --> EXP
+    MAN --> EXP
+    EXP --> DEL
+    DEL --> CLN
+```
+
+---
+
+## 3. Repository Layout
 
 ```text
 pet-gromming-agent-factory/
-├── AGENTS.md                        # Non-negotiable domain and engineering rules
-├── pyproject.toml                   # Python 3.12 / uv config, pinned deps, ruff/pyright/pytest
-├── Makefile / justfile              # Task runners: lint, typecheck, test
-├── requirements.txt                 # Core runtime dependencies
-├── requirements-social.txt          # Optional pinned gallery-dl==1.30.0 subprocess dependency
-├── requirements-browser.txt         # Optional pinned playwright==1.52.0 browser QA dependency
-├── .github/workflows/ci.yml         # GitHub Actions CI (ruff, pyright, pytest)
+├── AGENTS.md                         # Non-negotiable domain & engineering rules
+├── pyproject.toml                    # Python 3.12 + uv config, pinned deps, ruff/pyright/pytest
+├── uv.lock                           # Deterministic dependency lockfile
+├── Makefile / justfile               # Developer task shortcuts (lint, typecheck, test)
+├── Dockerfile / docker-compose.yml   # Local n8n + FastAPI collector service containers
+├── requirements*.txt                 # Compatibility requirement pins (core, social, browser)
+├── .github/workflows/ci.yml          # GitHub Actions CI (ruff + pyright + pytest)
 ├── docs/
-│   ├── DEVELOPER_BRIEF.md           # Full technical implementation specification (v1.1)
-│   ├── HANDOFF_README.md            # Handoff overview
-│   ├── AUDIT_AND_TESTS.md           # Audit findings and validation log
-│   └── BUDGET_AND_QUALITY.md        # Spend control, quality release gates, and resource policy
+│   ├── DEVELOPER_BRIEF.md            # Full technical architecture & milestone specification
+│   ├── HANDOFF_README.md             # Developer handoff guide
+│   ├── AUDIT_AND_TESTS.md            # Security & validation audit log
+│   └── BUDGET_AND_QUALITY.md         # Resource bounds, spend caps, and QA criteria
 ├── examples/
-│   └── BUSINESS_INPUT_EXAMPLE.json  # Example business intake payload
-├── src/engine/
-│   ├── contracts/                   # Pydantic v2 models: StageInput, StageOutput, Asset, Claim, Warning
-│   ├── collector.py                 # SSRF-hardened website crawler, HTML snapshot archiver & asset collector
-│   ├── browser_gallery.py           # Optional Playwright JS-rendered gallery candidate extractor
-│   ├── social_collect.py            # Hardened gallery-dl subprocess wrapper (dry-run metadata, EXIF strip)
-│   ├── import_social_media.py       # Manual authorized social media file importer
-│   ├── import_meta_export.py        # Defensive Meta ("Download your information") zip/folder importer
-│   ├── contact_sheet.py             # Local photo contact sheet generator for visual curation
-│   ├── local_preview.py             # 5-viewport Playwright & static HTML technical/accessibility QA
-│   ├── exporter.py                  # Release-gated standalone HTML & GoHighLevel snippet exporter
-│   ├── cleanup.py                   # Approval-gated SHA-256 verified zip archiver and selective pruner
-│   └── service.py                   # Local FastAPI job server backed by durable SQLite state
-├── app/                             # Backward-compatible CLI/Docker shims re-exporting src/engine/*
+│   └── BUSINESS_INPUT_EXAMPLE.json   # Canonical business intake payload
 ├── n8n/
-│   ├── 01-submit-asset-research.json
-│   └── 02-check-asset-job.json
+│   ├── 01-submit-asset-research.json # Starter n8n job submission workflow
+│   └── 02-check-asset-job.json       # Starter n8n job polling workflow
+├── src/engine/
+│   ├── contracts/
+│   │   └── __init__.py               # Pydantic v2 models: StageInput, StageOutput, Asset, Claim, Warning
+│   ├── collector.py                  # SSRF/rebinding-hardened website crawler & snapshot archiver
+│   ├── browser_gallery.py            # Optional Playwright JS gallery candidate discovery
+│   ├── social_collect.py             # Hardened gallery-dl subprocess wrapper + EXIF/GPS stripper
+│   ├── import_meta_export.py         # Defensive Meta "Download your information" zip/folder importer
+│   ├── import_social_media.py        # Client-authorized media registration utility
+│   ├── contact_sheet.py              # Thumbnail grid contact-sheet builder for visual curation
+│   ├── local_preview.py              # 5-width Playwright + static link/menu/reduced-motion QA
+│   ├── exporter.py                   # Standalone HTML + scoped GHL snippet exporter with rights gate
+│   ├── cleanup.py                    # Post-approval CRC/SHA-256 verified zip archiver & pruner
+│   └── service.py                    # Local FastAPI + SQLite job queue for n8n orchestration
+├── app/                              # Backward-compatible CLI/module shims re-exporting src/engine/*
 └── tests/
-    ├── test_contracts.py            # Pydantic v2 contract validation tests
-    ├── test_collector.py            # Website crawl, raw HTML snapshots, and asset provenance tests
-    ├── test_ssrf_rebinding.py       # DNS rebinding, private IP, encoded literal, and redirect SSRF tests
-    ├── test_social_collect.py       # Subprocess dry-run metadata, EXIF/GPS strip, failure classifier tests
-    ├── test_import_meta_export.py   # Instagram/Facebook export parser, zip-bomb & traversal guard tests
-    ├── test_local_preview.py        # CTA/nav link validation, mobile menu, and reduced-motion QA tests
-    ├── test_exporter_release_gate.py# Release gate & immutability tests for approved/GHL deliverables
-    └── test_v2.py                   # End-to-end v2 workflow compatibility and cleanup tests
+    ├── test_contracts.py             # Pydantic v2 contract validation tests
+    ├── test_collector.py             # Website crawl, HTML snapshot SHA-256, and asset provenance tests
+    ├── test_ssrf_rebinding.py        # 28 SSRF, IP encoding, redirect, and DNS-rebinding tests
+    ├── test_local_preview.py         # Bad/placeholder CTA link, mobile-menu, and reduced-motion QA tests
+    ├── test_social_collect.py        # Subprocess dry-run metadata, EXIF/GPS strip, failure classification tests
+    ├── test_import_meta_export.py    # Instagram/Facebook export parsing, zip-bomb & traversal guard tests
+    ├── test_exporter_release_gate.py # Release gate blocking unconfirmed/missing assets & GHL export tests
+    └── test_v2.py                    # Core v2 regression suite (hosts, date limits, archive/prune)
 ```
 
 ---
 
-## Per-Project Workspace Layout
+## 4. Security & Hardening Architecture
 
-Each business run operates inside an isolated project folder under `projects/<business-slug>/`:
+### 4.1 SSRF & DNS Rebinding Protection ([`src/engine/collector.py`](src/engine/collector.py))
+- **Single-Resolution Verified Dialer ([`dial_verified_socket`](src/engine/collector.py))**: Resolves DNS **once** per connection via an injectable resolver, unwraps IPv4-mapped IPv6 addresses (`::ffff:127.0.0.1`), and rejects the connection if **any** returned address is private, loopback, link-local, multicast, unspecified (`0.0.0.0`), CGNAT (`100.64.0.0/10`), cloud metadata (`169.254.169.254`), or non-global—eliminating the TOCTOU window between URL validation and socket connect.
+- **Scoped Adapter ([`SafeHTTPAdapter`](src/engine/collector.py))**: Attached exclusively to the collector's `requests.Session` (no global `urllib3` monkeypatching) while preserving the original hostname for `Host` header, TLS SNI, and certificate verification.
+- **Manual Redirect Validation**: `session.trust_env = False` (ignores ambient proxy env vars) and `allow_redirects = False`; every redirect hop (`<= MAX_REDIRECT_HOPS`) is re-validated against scheme (`http`/`https`), port (`80`/`443`), userinfo, and DNS/IP rules.
 
-```text
-projects/<business-slug>/
-├── assets/
-│   ├── website/                     # Original website images/logos/videos
-│   ├── instagram/                   # Raw collected/imported Instagram media
-│   ├── facebook/                    # Raw collected/imported Facebook media
-│   └── optimized/                   # EXIF/GPS-stripped optimized images
-├── research/
-│   ├── snapshots/<sha256>.html      # Immutable raw HTML snapshots for claim verification
-│   ├── pages.json                   # Crawled page metadata (url, sha256, fetched_at, status_code, text)
-│   ├── asset-manifest.json          # Provenance-tracked asset manifest
-│   ├── social-media-manifest.json   # Social media provenance manifest
-│   ├── meta-export-import-log.json  # Defensive parser log (including unparsed entries & reasons)
-│   └── run-summary.json             # Crawl summary and diagnostics
-├── website/
-│   └── index.html                   # Candidate homepage under design/review
-├── qa/
-│   ├── screenshots/                 # 1440w, 1024w, 768w, 390w, 360w viewport renders
-│   └── qa-report.json               # Technical QA report (badLinks, mobileMenu, reducedMotion, overflow)
-└── delivery/                        # Populated ONLY after passing the exporter release gate
-    ├── approved-homepage.html       # Immutable standalone HTML deliverable
-    ├── ghl-ready.html               # Scoped GoHighLevel custom HTML/CSS/JS snippet
-    ├── retained-assets.json         # Approved retained asset list
-    ├── asset-manifest.json          # Selected asset provenance map
-    └── release-manifest.json        # Release timestamp and SHA-256 checksums
-```
+### 4.2 Hardened Optional Social Collector ([`src/engine/social_collect.py`](src/engine/social_collect.py))
+- **Subprocess Isolation**: `gallery-dl` (`==1.30.0` in [`requirements-social.txt`](requirements-social.txt)) runs strictly as a child process (`shell=False`, `stdin=DEVNULL`) and is never imported.
+- **Explicit Permission Gate**: Requires `--i-have-permission` on the CLI (`i_have_permission=True`); otherwise returns `status="review_needed", reason="permission_required"`.
+- **Two-Phase Dry-Run Metadata Verification**:
+  1. Runs `gallery-dl --dump-json` first to inspect post metadata (`date`, `post_date`, `timestamp`, `post_url`, `username`).
+  2. Derives `post_date` in our own parser and sets `post_date_verified=True` **only** when a real timestamp exists in metadata.
+- **Zero Credential / Cookie Leakage**: Always passes `--config-ignore` and `--no-input`; scrubs sensitive tokens from logs via [`scrub_sensitive_text`](src/engine/social_collect.py).
+- **EXIF & GPS Stripping ([`strip_image_metadata`](src/engine/social_collect.py))**: Every downloaded image is verified with Pillow and re-encoded into `assets/optimized/` with all EXIF/GPS tags stripped.
+- **Deterministic Failure Classification ([`classify_social_failure`](src/engine/social_collect.py))**: Classifies failures into `login_required`, `rate_limited`, `extractor_broken`, or `unknown` -> `status="review_needed"`, never raising unhandled exceptions to the caller.
+
+### 4.3 Defensive Meta Export Importer ([`src/engine/import_meta_export.py`](src/engine/import_meta_export.py))
+- **Zip-Bomb & Stream Caps**: Never calls `ZipFile.extractall()`. Enforces `max_zip_entries`, `max_item_bytes`, `max_total_bytes`, and `max_compression_ratio` while streaming decompressed chunks so spoofed zip headers cannot bypass limits.
+- **Path Traversal & Symlink Guards**: Rejects zip symlinks, absolute paths, drive letters, and `..` segments in both archive member filenames and JSON `uri` references (`Path.is_relative_to` verification).
+- **Schema-Resilient Parsing**: Handles Instagram and Facebook `"Download your information"` JSON variations across versions, repairs Meta's Latin-1/UTF-8 mojibake strings, ignores unknown fields, and logs all unparseable files or records to `research/meta-export-import-log.json`.
+
+### 4.4 Technical Preview QA & Exporter Release Gate
+- **Technical QA ([`src/engine/local_preview.py`](src/engine/local_preview.py))**: Renders across 5 viewports (`1440`, `1024`, `768`, `390`, `360px`) and fails `technical_pass` if any CTA or nav link is `#`, empty, `javascript:`, or a placeholder (`todo`, `placeholder`, `coming-soon`, `example.com`), or if mobile-menu open/close or `prefers-reduced-motion: reduce` support is broken.
+- **Exporter Rights Gate ([`src/engine/exporter.py`](src/engine/exporter.py))**: Inspects all assets referenced in HTML/CSS before building `delivery/approved-homepage.html` and `delivery/ghl-ready.html`. Any asset with `rights_confirmed_for_preview=False` (or missing from manifests) halts the release and returns `offending_assets`.
 
 ---
 
-## Quickstart & Development Workflow
+## 5. Quickstart (`uv` + Python 3.12)
 
-### Prerequisites
-- **Python 3.12**
-- **[`uv`](https://docs.astral.sh/uv/)** package and environment manager
-
-### Install & Verify
 ```bash
-# Install dependencies into .venv
+# 1. Install dependencies into isolated .venv
 uv sync
 
-# Run the mandatory verification suite (lint + typecheck + test)
-uv run ruff check . && uv run pyright && uv run pytest -v
+# 2. Run linter, static type checker, and test suite
+uv run ruff check .
+uv run pyright
+uv run pytest -v
 ```
 
-You can also use `make` or `just`:
+Or using `Makefile` / `justfile`:
+
 ```bash
 make lint
 make typecheck
@@ -126,74 +187,132 @@ make test
 
 ---
 
-## Stage-by-Stage CLI Reference
+## 6. Module & CLI Reference
 
-### 1. Website Collection & Snapshot Archiving
-Crawls same-site pages (respecting `robots.txt`, crawl budgets, and SSRF/DNS-rebinding guards), archives raw HTML to `research/snapshots/<sha256>.html`, and downloads candidate media:
+### 6.1 Website Collector (`collector.py`)
+Crawls a public grooming website, archives raw HTML snapshots to `research/snapshots/<sha256>.html`, records page metadata in `research/pages.json`, and downloads verified site media into `assets/website/`.
 
 ```bash
-uv run python -m engine.collector https://example-groomer.com --output projects --max-pages 25 --max-media 80
+uv run python -m engine.collector https://example-groomer.com --output ./projects --max-pages 25 --max-media 80
 ```
 
-### 2. Optional Public Social Media Collection (`gallery-dl` Subprocess)
-Requires `gallery-dl==1.30.0` installed on the host (`pip install -r requirements-social.txt`) and an explicit `--i-have-permission` flag. Runs a `--dump-json` metadata dry-run first, verifies real timestamps, strips EXIF/GPS into `assets/optimized/`, and classifies any failure (`login_required`, `rate_limited`, `extractor_broken`, `unknown`) into `status="review_needed"` without raising:
+### 6.2 Optional Social Collector (`social_collect.py`)
+Runs `gallery-dl` as a bounded subprocess with dry-run metadata extraction and EXIF/GPS stripping.
 
 ```bash
 uv run python -m engine.social_collect \
-  --project projects/example-groomer-com \
+  --project ./projects/example-groomer-com \
   --platform instagram \
   --url https://www.instagram.com/example_groomer/ \
-  --days 365 \
   --max-files 40 \
+  --days 365 \
   --i-have-permission
 ```
 
-### 3. Meta ("Download Your Information") Export Importer
-Defensively parses an Instagram or Facebook archive (`.zip` or extracted folder) into `research/asset-manifest.json` and `research/social-media-manifest.json`. Guards against zip bombs, spoofed zip headers, symlinks, and path traversal, uses real post timestamps for `captured_at` / `post_date`, sets `rights_confirmed_for_preview=False`, and logs any unparsed items to `research/meta-export-import-log.json`:
+### 6.3 Meta Export Importer (`import_meta_export.py`)
+Imports an Instagram or Facebook `"Download your information"` `.zip` archive or extracted folder into `research/asset-manifest.json` and `research/social-media-manifest.json`.
 
 ```bash
 uv run python -m engine.import_meta_export \
-  --project projects/example-groomer-com \
-  --export /path/to/instagram-export.zip \
+  --project ./projects/example-groomer-com \
+  --export ./exports/instagram-export.zip \
   --platform auto \
   --max-files 80
 ```
 
-### 4. Local Technical & Accessibility QA
-Audits `website/index.html` across **1440px, 1024px, 768px, 390px, and 360px** viewports (using Playwright Chromium when installed, plus static HTML/CSS analysis). Fails `technical_pass` if any CTA/nav link is `#`, empty, `javascript:`, or a placeholder (`todo`, `placeholder`, `coming-soon`, `example.com`), or if mobile menu open/close or `@media (prefers-reduced-motion: reduce)` support is missing:
+### 6.4 Local Preview & Multi-Viewport Technical QA (`local_preview.py`)
+Runs 5-viewport QA checks (broken images, horizontal overflow, bad/placeholder CTA/nav links, mobile menu open/close, and `prefers-reduced-motion`).
 
 ```bash
-# Optional: install Chromium for live multi-viewport rendering
-uv run playwright install chromium
-
-uv run python -m engine.local_preview --html projects/example-groomer-com/website/index.html
+uv run python -m engine.local_preview --html ./projects/example-groomer-com/website/index.html
 ```
 
-### 5. Release Gate & Deliverable Exporter
-Verifies that every asset referenced in `website/index.html` exists in the project manifests with `rights_confirmed_for_preview: true`. If any used asset is unconfirmed, export is blocked and the list of `offending_assets` is returned. Once confirmed, builds immutable `delivery/approved-homepage.html` and scoped `delivery/ghl-ready.html`:
+### 6.5 Contact Sheet Generator (`contact_sheet.py`)
+Builds a visual contact sheet of collected photos for human/vision curation.
 
 ```bash
-uv run python -m engine.exporter --project projects/example-groomer-com
+uv run python -m engine.contact_sheet --project ./projects/example-groomer-com
 ```
 
-### 6. Post-Approval Verified Archive & Storage Cleanup
-Requires `delivery/approved-homepage.html`, `delivery/ghl-ready.html`, and `delivery/retained-assets.json` (`"approved": true`). Creates a CRC- and SHA-256-verified `.zip` archive in `projects/_archives/` before pruning unused raw staging media:
+### 6.6 Standalone & GoHighLevel Release Exporter (`exporter.py`)
+Verifies that every used asset has `rights_confirmed_for_preview=True` and exports `delivery/approved-homepage.html`, `delivery/ghl-ready.html`, `delivery/retained-assets.json`, and `delivery/release-manifest.json`.
 
 ```bash
-uv run python -m engine.cleanup --project projects/example-groomer-com --mode plan
-uv run python -m engine.cleanup --project projects/example-groomer-com --mode archive
-uv run python -m engine.cleanup --project projects/example-groomer-com --mode prune --confirm
+uv run python -m engine.exporter --project ./projects/example-groomer-com
+```
+
+### 6.7 Post-Approval Archive & Storage Cleanup (`cleanup.py`)
+Creates a CRC/SHA-256 verified zip backup of all retained delivery and research files before pruning unused staging assets.
+
+```bash
+uv run python -m engine.cleanup --project ./projects/example-groomer-com --mode plan
+uv run python -m engine.cleanup --project ./projects/example-groomer-com --mode archive
+uv run python -m engine.cleanup --project ./projects/example-groomer-com --mode prune --confirm
 ```
 
 ---
 
-## Local FastAPI Job Service & Docker Compose (Optional)
+## 7. Data Contracts & Project Workspace Schema
 
-To run the local SQLite-backed collector API and self-hosted `n8n` orchestrator:
+All stage boundaries are typed with Pydantic v2 models in [`src/engine/contracts/__init__.py`](src/engine/contracts/__init__.py):
+
+- **`StageInput`**: `{project_id, run_id, input_manifest_version, paths[]}`
+- **`StageOutput`**: `{status, outputs, warnings[], errors[], checksums{}}`
+- **`Asset`**: `{asset_id, source_url, page_url, local_path, sha256, width, height, mime, captured_at, rights_confirmed_for_preview=False, category, notes}`
+- **`Claim`**: `{field, value, source_url, source_text, snapshot_sha256, verified, status, last_checked_at}`
+
+Each business project directory follows a deterministic layout under `projects/<business-slug>/`:
+
+```text
+projects/<business-slug>/
+├── assets/
+│   ├── website/                      # Raw website media
+│   ├── instagram/                    # Raw Instagram media
+│   ├── facebook/                     # Raw Facebook media
+│   └── optimized/                    # EXIF/GPS-stripped optimized images
+├── research/
+│   ├── snapshots/<sha256>.html       # Immutable raw HTML snapshots for claim verification
+│   ├── pages.json                    # Crawled page metadata (url, sha256, fetched_at, status_code)
+│   ├── asset-manifest.json           # Unified asset provenance manifest
+│   ├── social-media-manifest.json    # Social media provenance & post_date verification manifest
+│   ├── meta-export-import-log.json   # Defensive import log & unparsed item report
+│   └── run-summary.json              # Collector run telemetry
+├── website/
+│   └── index.html                    # Candidate standalone website under QA/revision
+├── qa/
+│   ├── screenshots/                  # 1440w, 1024w, 768w, 390w, 360w viewport renders
+│   └── qa-report.json                # Structured technical & visual QA report
+└── delivery/                         # Immutable post-approval release artifacts
+    ├── approved-homepage.html        # Standalone HTML deliverable
+    ├── ghl-ready.html                # Scoped GoHighLevel custom HTML/CSS/JS snippet
+    ├── asset-manifest.json           # Approved subset of asset provenance records
+    ├── retained-assets.json          # Explicit retention list for cleanup gate
+    └── release-manifest.json         # Release timestamp and SHA-256 checksums
+```
+
+---
+
+## 8. n8n & Docker Orchestration
+
+Start the local n8n orchestrator and FastAPI collector worker (`127.0.0.1` bound):
 
 ```bash
 docker compose up --build -d
 ```
 
-- **Collector API Swagger UI:** `http://127.0.0.1:8787/docs`
-- **n8n UI:** `http://127.0.0.1:5678` (import workflows from [`n8n/`](./n8n/))
+- **n8n UI**: `http://localhost:5678` (import [`n8n/01-submit-asset-research.json`](n8n/01-submit-asset-research.json) and [`n8n/02-check-asset-job.json`](n8n/02-check-asset-job.json))
+- **Collector Service OpenAPI Docs**: `http://localhost:8787/docs`
+
+---
+
+## 9. Quality Gates, Testing & CI
+
+Every change must pass the three-stage verification gate configured in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+```bash
+uv run ruff check . && uv run pyright && uv run pytest
+```
+
+- **`ruff`**: Enforces `E`, `F`, `I`, `B`, `UP` rules at `line-length = 100` targeting Python 3.12.
+- **`pyright`**: Runs static type analysis across `src/` and `tests/` (`0 errors, 0 warnings`).
+- **`pytest`**: Runs 63 automated unit and integration tests covering contracts, HTML snapshot provenance, SSRF/DNS rebinding defense, social collection hardening, Meta export parsing/zip-bomb guards, multi-viewport preview QA, exporter release gates, and verified archive cleanup.
