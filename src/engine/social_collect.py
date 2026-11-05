@@ -445,7 +445,7 @@ def collect_social(
     days_limit: int = 365,
     timeout: int = 180,
     http_timeout: int = 20,
-    sleep_request: float = 1.0,
+    sleep_request: float = 3.0,
     sleep_seconds: float = 1.0,
     executable: str = "gallery-dl",
     runner: Callable[[list[str], Path], tuple[int, str]] | None = None,

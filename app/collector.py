@@ -11,6 +11,8 @@ from engine.collector import (
     MEDIA_EXTENSIONS,
     MEDIA_TYPES,
     PAGE_HINTS,
+    PROMPT_INJECTION_PATTERNS,
+    STRIPPED_HTML_TAGS,
     USER_AGENT,
     SafeHTTPAdapter,
     build_collector_session,
@@ -29,6 +31,7 @@ from engine.collector import (
     robots_allowed,
     safe_url,
     same_site,
+    sanitize_prompt_injection,
     slugify,
     validate_ip_address,
 )
@@ -42,6 +45,8 @@ __all__ = [
     "MEDIA_EXTENSIONS",
     "MEDIA_TYPES",
     "PAGE_HINTS",
+    "PROMPT_INJECTION_PATTERNS",
+    "STRIPPED_HTML_TAGS",
     "SafeHTTPAdapter",
     "USER_AGENT",
     "build_collector_session",
@@ -60,6 +65,7 @@ __all__ = [
     "robots_allowed",
     "safe_url",
     "same_site",
+    "sanitize_prompt_injection",
     "slugify",
     "validate_ip_address",
 ]

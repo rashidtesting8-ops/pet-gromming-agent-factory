@@ -24,7 +24,7 @@ from urllib.parse import unquote, urldefrag, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, Tag
 from PIL import Image, UnidentifiedImageError
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection, HTTPSConnection
@@ -513,12 +513,59 @@ def grab_media(soup: BeautifulSoup, page_url: str) -> list[dict[str, str]]:
     return found
 
 
-def collect_page_text(soup: BeautifulSoup, url: str) -> dict[str, str]:
-    for tag in soup(["script", "style", "noscript", "svg"]):
+STRIPPED_HTML_TAGS = (
+    "script",
+    "style",
+    "iframe",
+    "noscript",
+    "svg",
+    "object",
+    "embed",
+    "template",
+)
+
+PROMPT_INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", re.I),
+    re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", re.I),
+    re.compile(r"forget\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", re.I),
+    re.compile(r"\bsystem\s+prompt\b", re.I),
+    re.compile(r"<\|(?:system|im_start|im_end|endoftext)\|>", re.I),
+    re.compile(r"\[(?:system|inst|/inst)\]", re.I),
+    re.compile(r"#{2,}\s*(?:system|instruction|prompt)\b", re.I),
+    re.compile(r"\bdeveloper\s+mode\b", re.I),
+    re.compile(r"\bdo\s+anything\s+now\b", re.I),
+)
+
+
+def sanitize_prompt_injection(text: str) -> tuple[str, list[str]]:
+    """Scan text against prompt-injection delimiters and neutralize offending lines."""
+    detected: list[str] = []
+    safe_lines: list[str] = []
+    for raw_line in text.splitlines():
+        matched_line = False
+        for pattern in PROMPT_INJECTION_PATTERNS:
+            match = pattern.search(raw_line)
+            if match:
+                detected.append(match.group(0))
+                matched_line = True
+        if not matched_line:
+            safe_lines.append(raw_line)
+    return "\n".join(safe_lines), detected
+
+
+def collect_page_text(soup: BeautifulSoup, url: str) -> dict[str, Any]:
+    for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
+        comment.extract()
+    for tag in soup(list(STRIPPED_HTML_TAGS)):
         tag.decompose()
-    text = "\n".join(t.strip() for t in soup.stripped_strings if t.strip())
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return {"url": url, "text": text[:90000]}
+    raw_text = "\n".join(t.strip() for t in soup.stripped_strings if t.strip())
+    sanitized_text, injection_hits = sanitize_prompt_injection(raw_text)
+    cleaned = re.sub(r"\n{3,}", "\n\n", sanitized_text)
+    return {
+        "url": url,
+        "text": cleaned[:90000],
+        "prompt_injection_hits": injection_hits,
+    }
 
 
 def media_type(content_type: str, url: str) -> tuple[str | None, str | None]:
