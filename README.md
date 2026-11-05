@@ -1,4 +1,4 @@
-# Pet Grooming Website Builder Engine (`EditVista`)
+# Pet Grooming Website Builder Engine 
 
 [![CI](https://github.com/rashidtesting8-ops/pet-gromming-agent-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/rashidtesting8-ops/pet-gromming-agent-factory/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
