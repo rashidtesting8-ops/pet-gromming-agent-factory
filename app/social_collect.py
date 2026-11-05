@@ -9,11 +9,17 @@ from engine.social_collect import (
     MAX_STAGING_BYTES,
     SOCIAL_HOSTS,
     check_social_url,
+    classify_social_failure,
     collect_social,
     cutoff_year,
+    derive_post_metadata,
     file_safe,
     folder_size,
     main,
+    parse_dump_json_metadata,
+    run_cli,
+    scrub_sensitive_text,
+    strip_image_metadata,
 )
 
 __all__ = [
@@ -23,13 +29,18 @@ __all__ = [
     "MAX_STAGING_BYTES",
     "SOCIAL_HOSTS",
     "check_social_url",
+    "classify_social_failure",
     "collect_social",
     "cutoff_year",
+    "derive_post_metadata",
     "file_safe",
     "folder_size",
     "main",
+    "parse_dump_json_metadata",
+    "run_cli",
+    "scrub_sensitive_text",
+    "strip_image_metadata",
 ]
 
 if __name__ == "__main__":
     main()
-
