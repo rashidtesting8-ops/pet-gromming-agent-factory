@@ -14,6 +14,8 @@ CLI Interface:
    `python -m app.pipeline prune --project-id <ID> [--execute]`
 4. Operator Cockpit Web Dashboard:
    `python -m app.pipeline cockpit [--port 8787] [--projects-dir ./projects]`
+5. Milestone 5 Acceptance Pilot:
+   `python -m app.pipeline pilot [--run-all]`
 """
 
 from __future__ import annotations
@@ -784,6 +786,10 @@ def main(
         from app.cockpit import main as cockpit_main
 
         return cockpit_main(args_list[1:])
+    if args_list and args_list[0] == "pilot":
+        from app.pilot import main as pilot_main
+
+        return pilot_main(args_list[1:])
 
     parser = build_arg_parser()
     args = parser.parse_args(args_list)
