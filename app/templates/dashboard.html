@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EditVista Operator Cockpit — Projects</title>
+  <style>
+    :root {
+      --bg: #0F172A;
+      --surface: #1E293B;
+      --surface-border: #334155;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --primary: #38BDF8;
+      --primary-hover: #0EA5E9;
+      --accent: #F59E0B;
+      --success: #10B981;
+      --danger: #EF4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 2rem; min-height: 100vh; }
+    header { max-width: 1200px; margin: 0 auto 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-border); padding-bottom: 1.5rem; }
+    h1 { font-size: 1.75rem; font-weight: 700; color: var(--text); }
+    .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 0.25rem; }
+    .grid { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1.5rem; }
+    .project-card { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 8px; padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+    .card-header h3 { font-size: 1.15rem; color: var(--text); }
+    .project-url a { color: var(--primary); text-decoration: none; font-size: 0.85rem; word-break: break-all; }
+    .project-url a:hover { text-decoration: underline; }
+    .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--surface-border); padding-top: 1rem; }
+    .pid-tag { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); }
+    .badge { padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .badge-amber { background: rgba(245, 158, 11, 0.2); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-green { background: rgba(16, 185, 129, 0.2); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-red { background: rgba(239, 68, 68, 0.2); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-blue { background: rgba(56, 189, 248, 0.2); color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .btn-primary { background: var(--primary); color: #0F172A; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.15s; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .empty-msg { color: var(--text-muted); font-style: italic; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>EditVista Operator Cockpit</h1>
+      <p class="subtitle">Human-in-the-Loop Visual Verification, Evidence Auditing &amp; Release Gate</p>
+    </div>
+  </header>
+  <main class="grid">
+    {{CARDS_HTML}}
+  </main>
+</body>
+</html>
+

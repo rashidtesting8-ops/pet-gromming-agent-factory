@@ -12,6 +12,8 @@ CLI Interface:
    `python -m app.pipeline approve --project-id <ID> --operator "Dev" --notes "Verified"`
 3. Approval-Gated Cleanup:
    `python -m app.pipeline prune --project-id <ID> [--execute]`
+4. Operator Cockpit Web Dashboard:
+   `python -m app.pipeline cockpit [--port 8787] [--projects-dir ./projects]`
 """
 
 from __future__ import annotations
@@ -778,6 +780,10 @@ def main(
         return _handle_prune_subcommand(args_list[1:])
     if args_list and args_list[0] == "verify":
         return _handle_verify_subcommand(args_list[1:])
+    if args_list and args_list[0] == "cockpit":
+        from app.cockpit import main as cockpit_main
+
+        return cockpit_main(args_list[1:])
 
     parser = build_arg_parser()
     args = parser.parse_args(args_list)

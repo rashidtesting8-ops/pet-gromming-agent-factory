@@ -1,0 +1,437 @@
+"""Local Visual Review & Operator Cockpit (Track 2: Human-in-the-Loop Web UI).
+
+FastAPI + Vanilla HTML/CSS/JS operator dashboard for side-by-side inspection,
+fact verification auditing, 5-viewport screenshot QA, asset rights confirmation,
+surgical section revisions, and release freezing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import mimetypes
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+
+from app.approval import (
+    ReleaseApprovalGateError,
+    approve_release,
+    generate_review_summary,
+    stage_release_candidate,
+)
+from app.db import connect_db, init_db, list_projects
+from app.generator import revise_section
+
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+
+def _atomic_write_text(target: Path, content: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _resolve_project_root(project_id: str, projects_dir: Path) -> Path:
+    if ".." in project_id or "/" in project_id or "\\" in project_id:
+        raise HTTPException(status_code=400, detail="Invalid project identifier")
+    project_root = (projects_dir / project_id).resolve()
+    if not project_root.is_relative_to(projects_dir.resolve()) or not project_root.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    return project_root
+
+
+def _resolve_safe_file(base_dir: Path, rel_path: str) -> Path:
+    cleaned = rel_path.lstrip("/\\")
+    target = (base_dir / cleaned).resolve()
+    if not target.is_relative_to(base_dir.resolve()) or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found or access denied")
+    return target
+
+
+class ConfirmRightsRequest(BaseModel):
+    asset_file: str
+    confirmed: bool = True
+
+
+class ApproveReleaseRequest(BaseModel):
+    operator_name: str = Field(default="Dev Operator")
+    notes: str = Field(default="Approved via Operator Cockpit")
+    version: str = Field(default="v1")
+
+
+class ReviseSectionRequest(BaseModel):
+    section_name: str
+    new_html: str
+
+
+def _render_dashboard_html(projects: list[dict[str, Any]]) -> str:
+    template_path = TEMPLATES_DIR / "dashboard.html"
+    raw_template = template_path.read_text(encoding="utf-8")
+
+    cards = []
+    for p in projects:
+        pid = html.escape(p["project_id"])
+        name = html.escape(p.get("business_name") or pid)
+        status = html.escape(p.get("status") or "unknown")
+        url = html.escape(p.get("primary_url") or "#")
+
+        status_class = "badge-amber"
+        if status == "approved":
+            status_class = "badge-green"
+        elif status == "needs_review":
+            status_class = "badge-red"
+        elif status == "running":
+            status_class = "badge-blue"
+
+        card_snippet = (
+            '        <div class="project-card">\n'
+            '          <div class="card-header">\n'
+            f"            <h3>{name}</h3>\n"
+            f'            <span class="badge {status_class}">{status}</span>\n'
+            "          </div>\n"
+            f'          <p class="project-url">'
+            f'<a href="{url}" target="_blank" rel="noopener">{url}</a></p>\n'
+            '          <div class="card-footer">\n'
+            f'            <span class="pid-tag">ID: {pid}</span>\n'
+            f'            <a class="btn-primary" href="/review/{pid}">Open Cockpit &rarr;</a>\n'
+            "          </div>\n"
+            "        </div>"
+        )
+        cards.append(card_snippet)
+
+    cards_html = (
+        "\n".join(cards)
+        if cards
+        else "<p class='empty-msg'>No projects found in projects directory.</p>"
+    )
+    return raw_template.replace("{{CARDS_HTML}}", cards_html)
+
+
+def _render_review_cockpit_html(
+    project_id: str,
+    project_data: dict[str, Any],
+) -> str:
+    template_path = TEMPLATES_DIR / "review_cockpit.html"
+    raw_template = template_path.read_text(encoding="utf-8")
+
+    pid = html.escape(project_id)
+    summary = project_data.get("summary", {})
+    facts = project_data.get("facts", [])
+    assets = summary.get("assets", [])
+    status = html.escape(project_data.get("status", "unknown"))
+
+    # Facts rows
+    fact_rows = []
+    for f in facts:
+        cat = html.escape(str(f.get("category", "")))
+        key = html.escape(str(f.get("claim_key", "")))
+        val = html.escape(str(f.get("claim_value", "")))
+        snippet = html.escape(str(f.get("source_text_snippet", "")))
+        src_url = html.escape(str(f.get("source_url", "")))
+        is_ver = bool(f.get("is_verified"))
+        badge = (
+            '<span class="badge badge-green">verified</span>'
+            if is_ver
+            else '<span class="badge badge-amber">needs_review</span>'
+        )
+
+        row = (
+            "        <tr>\n"
+            f'          <td><span class="cat-pill">{cat}</span></td>\n'
+            f"          <td><strong>{key}</strong><br>"
+            f'<span class="val-text">{val}</span></td>\n'
+            f"          <td>{badge}</td>\n"
+            f'          <td class="snippet-cell">"{snippet}"<br>'
+            f'<a href="{src_url}" target="_blank" rel="noopener">{src_url}</a></td>\n'
+            "        </tr>\n"
+        )
+        fact_rows.append(row)
+    facts_html = (
+        "".join(fact_rows) if fact_rows else "<tr><td colspan='4'>No facts extracted.</td></tr>"
+    )
+
+    # Asset rows
+    asset_rows = []
+    for a in assets:
+        rel_f = str(a.get("file", ""))
+        esc_f = html.escape(rel_f)
+        sha = html.escape(str(a.get("sha256", ""))[:12])
+        url = html.escape(str(a.get("source_url", "")))
+        rights = bool(a.get("rights_confirmed_for_preview"))
+        r_badge = (
+            '<span class="badge badge-green">Confirmed</span>'
+            if rights
+            else '<span class="badge badge-amber">Unconfirmed</span>'
+        )
+        toggle_state = str(not rights).lower()
+        btn = (
+            f'<button class="btn-sm" '
+            f'onclick="confirmRights(\'{esc_f}\', {toggle_state})">'
+            f"Toggle Rights</button>"
+        )
+
+        row = (
+            "        <tr>\n"
+            f'          <td><img src="/assets/{pid}/{esc_f}" class="thumb-img" '
+            f'alt="{esc_f}" onerror="this.style.display=\'none\'"></td>\n'
+            f"          <td><code>{esc_f}</code><br>"
+            f'<span class="sha-text">SHA: {sha}</span></td>\n'
+            f'          <td><a href="{url}" target="_blank" rel="noopener" '
+            f'class="src-link">{url}</a></td>\n'
+            f"          <td>{r_badge}</td>\n"
+            f"          <td>{btn}</td>\n"
+            "        </tr>\n"
+        )
+        asset_rows.append(row)
+    assets_html = (
+        "".join(asset_rows)
+        if asset_rows
+        else "<tr><td colspan='5'>No assets in manifest.</td></tr>"
+    )
+
+    # Screenshot tabs
+    tabs = []
+    panes = []
+    widths = [1440, 1024, 768, 390, 360]
+    for idx, w in enumerate(widths):
+        active_cls = "active" if idx == 0 else ""
+        tabs.append(
+            f'<button class="tab-btn {active_cls}" '
+            f'onclick="openTab(event, \'vp-{w}\')">{w}px</button>'
+        )
+        panes.append(
+            f'        <div id="vp-{w}" class="tab-pane {active_cls}">\n'
+            '          <div class="shot-wrapper">\n'
+            f'            <img src="/screenshots/{pid}/{w}px.png" '
+            f'alt="Viewport {w}px render" class="viewport-shot">\n'
+            "          </div>\n"
+            "        </div>"
+        )
+
+    rendered = raw_template.replace("{{PID}}", pid)
+    rendered = rendered.replace("{{STATUS}}", status)
+    rendered = rendered.replace("{{FACTS_HTML}}", facts_html)
+    rendered = rendered.replace("{{ASSETS_HTML}}", assets_html)
+    rendered = rendered.replace("{{TABS_HTML}}", "\n".join(tabs))
+    rendered = rendered.replace("{{PANES_HTML}}", "\n".join(panes))
+    return rendered
+
+
+def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
+    """Factory creating the Operator Cockpit FastAPI instance bound to a projects root."""
+    resolved_projects_dir = Path(projects_dir).resolve()
+    resolved_projects_dir.mkdir(parents=True, exist_ok=True)
+    db_path = resolved_projects_dir / "editvista.sqlite3"
+
+    app = FastAPI(title="EditVista Operator Cockpit", docs_url="/api/docs")
+
+    @app.get("/api/health")
+    def health_check() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard() -> HTMLResponse:
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            records = list_projects(conn)
+            projects_map = {r.project_id: r.model_dump() for r in records}
+        finally:
+            conn.close()
+
+        # Augment with directories present on disk
+        for p in resolved_projects_dir.iterdir():
+            if p.is_dir() and not p.name.startswith(("_", ".")):
+                if p.name not in projects_map:
+                    projects_map[p.name] = {
+                        "project_id": p.name,
+                        "business_name": p.name,
+                        "status": "awaiting_approval",
+                        "primary_url": "",
+                    }
+
+        return HTMLResponse(content=_render_dashboard_html(list(projects_map.values())))
+
+    @app.get("/review/{project_id}", response_class=HTMLResponse)
+    def review_cockpit(project_id: str) -> HTMLResponse:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        summary = generate_review_summary(project_id, projects_dir=resolved_projects_dir)
+
+        facts_list: list[dict[str, Any]] = []
+        facts_path = root / "research" / "business-facts.json"
+        if facts_path.is_file():
+            try:
+                f_data = json.loads(facts_path.read_text(encoding="utf-8"))
+                facts_list = f_data.get("facts", [])
+            except Exception:
+                pass
+
+        status = "awaiting_approval"
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            row = conn.execute(
+                "SELECT status FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if row:
+                status = str(row[0])
+        finally:
+            conn.close()
+
+        project_data = {
+            "summary": summary,
+            "facts": facts_list,
+            "status": status,
+        }
+        return HTMLResponse(content=_render_review_cockpit_html(project_id, project_data))
+
+    @app.get("/api/projects/{project_id}/summary")
+    def project_summary_api(project_id: str) -> dict[str, Any]:
+        _resolve_project_root(project_id, resolved_projects_dir)
+        return generate_review_summary(project_id, projects_dir=resolved_projects_dir)
+
+    @app.post("/api/projects/{project_id}/confirm-rights")
+    def confirm_asset_rights(project_id: str, req: ConfirmRightsRequest) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        manifest_path = root / "research" / "asset-manifest.json"
+        if not manifest_path.is_file():
+            raise HTTPException(status_code=404, detail="asset-manifest.json not found")
+
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        updated = False
+        target_norm = req.asset_file.replace("\\", "/").strip().lstrip("/")
+
+        for item in manifest_data:
+            item_file = str(item.get("file", "")).replace("\\", "/").strip().lstrip("/")
+            if item_file == target_norm or item_file.endswith(target_norm):
+                item["rights_confirmed_for_preview"] = req.confirmed
+                updated = True
+                break
+
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Asset '{req.asset_file}' not found in manifest",
+            )
+
+        _atomic_write_text(manifest_path, json.dumps(manifest_data, indent=2))
+        return {
+            "status": "updated",
+            "asset_file": req.asset_file,
+            "rights_confirmed_for_preview": req.confirmed,
+        }
+
+    @app.post("/api/projects/{project_id}/approve")
+    def approve_release_endpoint(project_id: str, req: ApproveReleaseRequest) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        try:
+            manifest_sha = approve_release(
+                root,
+                version=req.version,
+                operator_name=req.operator_name,
+                notes=req.notes,
+                projects_dir=resolved_projects_dir,
+                db_path=db_path,
+            )
+            return {
+                "status": "approved",
+                "project_id": project_id,
+                "version": req.version,
+                "manifest_sha256": manifest_sha,
+            }
+        except ReleaseApprovalGateError as gate_err:
+            raise HTTPException(status_code=400, detail=str(gate_err)) from gate_err
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{project_id}/revise-section")
+    def revise_section_endpoint(project_id: str, req: ReviseSectionRequest) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        try:
+            new_hashes = revise_section(
+                req.section_name,
+                req.new_html,
+                project_folder=root,
+            )
+            stage_release_candidate(root)
+            return {
+                "status": "revised",
+                "project_id": project_id,
+                "modified_section": req.section_name,
+                "section_hashes": new_hashes,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/preview/{project_id}/{subpath:path}")
+    def serve_preview(project_id: str, subpath: str) -> Response:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        target: Path | None = None
+        for base in (root / "release-candidate", root / "website", root):
+            try:
+                candidate = _resolve_safe_file(base, subpath)
+                target = candidate
+                break
+            except HTTPException:
+                continue
+
+        if not target or not target.is_file():
+            raise HTTPException(status_code=404, detail="Preview file not found")
+
+        mime, _ = mimetypes.guess_type(target.name)
+        content_type = mime or "application/octet-stream"
+        if target.suffix == ".html":
+            content_type = "text/html; charset=utf-8"
+        return Response(content=target.read_bytes(), media_type=content_type)
+
+    @app.get("/screenshots/{project_id}/{filename}")
+    def serve_screenshot(project_id: str, filename: str) -> Response:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        target = _resolve_safe_file(root / "qa" / "screenshots", filename)
+        return Response(content=target.read_bytes(), media_type="image/png")
+
+    @app.get("/assets/{project_id}/{subpath:path}")
+    def serve_asset(project_id: str, subpath: str) -> Response:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        target = _resolve_safe_file(root, subpath)
+        mime, _ = mimetypes.guess_type(target.name)
+        return Response(content=target.read_bytes(), media_type=mime or "image/jpeg")
+
+    return app
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="EditVista Operator Cockpit Web Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
+    parser.add_argument("--port", type=int, default=8787, help="Port to listen on")
+    parser.add_argument("--projects-dir", default="./projects", help="Projects directory root")
+    args = parser.parse_args(argv)
+
+    cockpit_app = create_cockpit_app(projects_dir=args.projects_dir)
+    print(f"Starting EditVista Operator Cockpit on http://{args.host}:{args.port}")
+    uvicorn.run(cockpit_app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

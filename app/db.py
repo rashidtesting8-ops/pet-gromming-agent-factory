@@ -238,6 +238,22 @@ def get_project(conn: sqlite3.Connection, project_id: str) -> ProjectRecord | No
     )
 
 
+def list_projects(conn: sqlite3.Connection) -> list[ProjectRecord]:
+    """Fetch all projects ordered by updated_at descending."""
+    rows = conn.execute("SELECT * FROM projects ORDER BY updated_at DESC").fetchall()
+    return [
+        ProjectRecord(
+            project_id=str(row["project_id"]),
+            business_name=str(row["business_name"]),
+            primary_url=str(row["primary_url"]),
+            status=str(row["status"]),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        )
+        for row in rows
+    ]
+
+
 def upsert_job_run(conn: sqlite3.Connection, record: JobRunRecord) -> JobRunRecord:
     """Insert or update a job_runs row inside a BEGIN IMMEDIATE transaction."""
     with immediate_transaction(conn):
