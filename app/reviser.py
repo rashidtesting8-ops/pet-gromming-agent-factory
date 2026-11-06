@@ -18,7 +18,7 @@ import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel, ConfigDict, Field
@@ -379,8 +379,9 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
 def run_critique_revision_loop(
     project_folder: str | Path,
     *,
-    critic_fn: Callable[[str | Path], VisualCriticReport] = run_visual_critic,
+    critic_fn: Callable[..., VisualCriticReport] = run_visual_critic,
     max_iterations: int = MAX_REVISION_ITERATIONS,
+    llm_adapter: Any = None,
 ) -> CritiqueRevisionLoopResult:
     """Execute bounded critique-and-revision loop (hard-capped at 3 iterations)."""
     project_root = Path(project_folder).resolve()
@@ -392,7 +393,10 @@ def run_critique_revision_loop(
 
     for _ in range(capped_limit):
         iterations += 1
-        report = critic_fn(project_root)
+        if critic_fn == run_visual_critic and llm_adapter is not None:
+            report = run_visual_critic(project_root, llm_adapter=llm_adapter)
+        else:
+            report = critic_fn(project_root)
         if report.status == "passed" or not report.defects:
             return CritiqueRevisionLoopResult(
                 project_id=project_id,

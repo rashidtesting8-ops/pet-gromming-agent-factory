@@ -13,6 +13,7 @@ Rules:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -26,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+import requests
 from pydantic import BaseModel, ConfigDict, Field
 
 ADAPTER_VERSION = "2.0"
@@ -128,6 +130,276 @@ class FakeProvider:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            model=active_model,
+        )
+
+
+class AnthropicProvider:
+    """Anthropic Claude provider implementation using Messages API."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        default_model: str = "claude-3-5-sonnet-20241022",
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        self.api_key = api_key or get_env_api_key("ANTHROPIC_API_KEY")
+        self.default_model = default_model
+        self.timeout_seconds = timeout_seconds
+
+    def _build_headers(self) -> dict[str, str]:
+        return {
+            "x-api-key": self.api_key or "",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+    def _build_request_payload(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int = 2000,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        content_blocks: list[dict[str, Any]] = []
+        for img in images:
+            data_bytes = img.read_bytes() if isinstance(img, Path) else img
+            media_type = "image/png" if data_bytes.startswith(b"\x89PNG") else "image/jpeg"
+            content_blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64.b64encode(data_bytes).decode("utf-8"),
+                    },
+                }
+            )
+        content_blocks.append({"type": "text", "text": prompt})
+
+        payload: dict[str, Any] = {
+            "model": model or self.default_model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": content_blocks}],
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        return payload
+
+    def complete(
+        self,
+        prompt: str,
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if not self.api_key:
+            raise RuntimeError("Missing ANTHROPIC_API_KEY environment variable")
+        active_model = model or self.default_model
+        payload = self._build_request_payload(prompt, images=images, model=active_model, **kwargs)
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=self._build_headers(),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"Anthropic API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        text_parts = [
+            c.get("text", "") for c in data.get("content", []) if c.get("type") == "text"
+        ]
+        usage = data.get("usage", {})
+        p_tokens = int(usage.get("input_tokens", 0))
+        c_tokens = int(usage.get("output_tokens", 0))
+        return LLMResponse(
+            content="".join(text_parts),
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=p_tokens + c_tokens,
+            model=active_model,
+        )
+
+
+class OpenAIProvider:
+    """OpenAI GPT provider implementation using Chat Completions API."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        default_model: str = "gpt-4o",
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        self.api_key = api_key or get_env_api_key("OPENAI_API_KEY")
+        self.default_model = default_model
+        self.timeout_seconds = timeout_seconds
+
+    def _build_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key or ''}",
+            "Content-Type": "application/json",
+        }
+
+    def _build_request_payload(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int = 2000,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        messages: list[dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        user_content: list[dict[str, Any]] = []
+        for img in images:
+            data_bytes = img.read_bytes() if isinstance(img, Path) else img
+            mime = "image/png" if data_bytes.startswith(b"\x89PNG") else "image/jpeg"
+            b64 = base64.b64encode(data_bytes).decode("utf-8")
+            user_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                }
+            )
+        user_content.append({"type": "text", "text": prompt})
+        messages.append({"role": "user", "content": user_content})
+
+        return {
+            "model": model or self.default_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+    def complete(
+        self,
+        prompt: str,
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if not self.api_key:
+            raise RuntimeError("Missing OPENAI_API_KEY environment variable")
+        active_model = model or self.default_model
+        payload = self._build_request_payload(prompt, images=images, model=active_model, **kwargs)
+        resp = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=self._build_headers(),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"OpenAI API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        text = choice.get("message", {}).get("content", "")
+        usage = data.get("usage", {})
+        p_tokens = int(usage.get("prompt_tokens", 0))
+        c_tokens = int(usage.get("completion_tokens", 0))
+        return LLMResponse(
+            content=text,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=p_tokens + c_tokens,
+            model=active_model,
+        )
+
+
+class GeminiProvider:
+    """Google Gemini provider implementation using REST generateContent endpoint."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        default_model: str = "gemini-1.5-pro",
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        self.api_key = api_key or get_env_api_key("GEMINI_API_KEY")
+        self.default_model = default_model
+        self.timeout_seconds = timeout_seconds
+
+    def _build_url(self, model: str) -> str:
+        return (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={self.api_key or ''}"
+        )
+
+    def _build_request_payload(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        images: Sequence[bytes | Path] = (),
+        temperature: float = 0.2,
+        max_tokens: int = 2000,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        parts: list[dict[str, Any]] = []
+        for img in images:
+            data_bytes = img.read_bytes() if isinstance(img, Path) else img
+            mime = "image/png" if data_bytes.startswith(b"\x89PNG") else "image/jpeg"
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": mime,
+                        "data": base64.b64encode(data_bytes).decode("utf-8"),
+                    }
+                }
+            )
+        parts.append({"text": prompt})
+
+        payload: dict[str, Any] = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            },
+        }
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        return payload
+
+    def complete(
+        self,
+        prompt: str,
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if not self.api_key:
+            raise RuntimeError("Missing GEMINI_API_KEY environment variable")
+        active_model = model or self.default_model
+        url = self._build_url(active_model)
+        payload = self._build_request_payload(prompt, images=images, **kwargs)
+        resp = requests.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"Gemini API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        text = ""
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts)
+        metadata = data.get("usageMetadata", {})
+        p_tokens = int(metadata.get("promptTokenCount", 0))
+        c_tokens = int(metadata.get("candidatesTokenCount", 0))
+        return LLMResponse(
+            content=text,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=p_tokens + c_tokens,
             model=active_model,
         )
 
@@ -416,6 +688,7 @@ class LLMAdapter:
         response_schema: Any = None,
         response_schema_id: str | None = None,
         project_dir: str | Path | None = None,
+        **extra_kwargs: Any,
     ) -> LLMResponse:
         """Execute completion through cache and provider, enforcing hard budget ceilings."""
         # 1. Enforce path traversal boundaries on images
@@ -531,6 +804,9 @@ class LLMAdapter:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_schema=response_schema,
+                stage=stage,
+                project_id=project_id,
+                **extra_kwargs,
             )
         except Exception as exc:
             sanitized_err = redact_secrets(str(exc))
@@ -589,3 +865,18 @@ class LLMAdapter:
         )
 
         return response
+
+
+def get_default_adapter(
+    project_id: str | None = None,
+    config: BudgetConfig | None = None,
+) -> LLMAdapter:
+    """Instantiate the appropriate LLM adapter based on environment variables."""
+    cfg = config or BudgetConfig()
+    if get_env_api_key("ANTHROPIC_API_KEY"):
+        return LLMAdapter(AnthropicProvider(), config=cfg)
+    if get_env_api_key("OPENAI_API_KEY"):
+        return LLMAdapter(OpenAIProvider(), config=cfg)
+    if get_env_api_key("GEMINI_API_KEY"):
+        return LLMAdapter(GeminiProvider(), config=cfg)
+    return LLMAdapter(FakeProvider(), config=cfg)

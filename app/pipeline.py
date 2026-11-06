@@ -222,6 +222,7 @@ def run_pipeline(
     pause_for_approval: bool = False,
     auto_approve_test: bool = True,
     qa_runner: QARunnerFn | None = None,
+    llm_adapter: Any = None,
 ) -> PipelineRunResult:
     """Execute the EditVista lifecycle with SQLite idempotency, resumption, and approval gate."""
     projects_root = Path(projects_dir).resolve()
@@ -426,7 +427,11 @@ def run_pipeline(
                 idempotency_key=art_idemp,
                 status="running",
             )
-            generate_art_direction(project_root, provenance_records=provenance_records)
+            generate_art_direction(
+                project_root,
+                provenance_records=provenance_records,
+                llm_adapter=llm_adapter,
+            )
             _record_job_transition(
                 conn,
                 project_id=project_id,
@@ -504,7 +509,7 @@ def run_pipeline(
                 idempotency_key=critique_idemp,
                 status="running",
             )
-            critique_report = run_visual_critic(project_root)
+            critique_report = run_visual_critic(project_root, llm_adapter=llm_adapter)
             _record_job_transition(
                 conn,
                 project_id=project_id,

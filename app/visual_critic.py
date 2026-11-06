@@ -141,7 +141,11 @@ def _resolve_section_id(section_tag: Tag, index: int) -> str:
     return f"section-{index}"
 
 
-def run_visual_critic(project_folder: str | Path) -> VisualCriticReport:
+def run_visual_critic(
+    project_folder: str | Path,
+    *,
+    llm_adapter: Any = None,
+) -> VisualCriticReport:
     """Inspect screenshots, brand/brief JSONs, and HTML/CSS to produce visual-critique.json."""
     project_root = Path(project_folder).resolve()
     project_id = project_root.name
@@ -278,6 +282,53 @@ def run_visual_critic(project_folder: str | Path) -> VisualCriticReport:
                         ),
                     )
                 )
+
+    # Multimodal LLM visual critique on rendered screenshots
+    if llm_adapter is not None and screenshot_files:
+        critic_prompt = (
+            f"Project: {project_id}\n"
+            f"Primary Brand Color: {primary_color}\n"
+            "Inspect the rendered homepage screenshot(s) and review for visual design defects:\n"
+            "- Flat beige or monotonous card styles\n"
+            "- Poor typography contrast or illegible overlay on pet photos\n"
+            "- Clipped pet heads or awkward focal framing\n"
+            "- Cramped section padding or inconsistent whitespace rhythm\n\n"
+            "Return valid JSON strictly matching:\n"
+            '{"status": "defects_found" | "passed", "defects": [{"target_section_id": "...", '
+            '"screenshot_path": "...", "defect_type": "...", "actionable_instruction": "..."}]}\n'
+            "Instructions must be concrete and actionable CSS/DOM commands (>= 15 characters). "
+            "Never use vague phrases like 'make it better'."
+        )
+        sys_prompt = (
+            "You are a strict visual QA design critic for pet grooming websites. "
+            "Output valid JSON only."
+        )
+        try:
+            shot_images = [p for p in screenshot_files[:2]]
+            resp = llm_adapter.complete(
+                prompt=critic_prompt,
+                system_prompt=sys_prompt,
+                images=shot_images,
+                project_id=project_id,
+                stage="visual_critic",
+                response_schema="visual_critique_v1",
+                temperature=0.1,
+            )
+            llm_data = json.loads(resp.content)
+            for raw_d in llm_data.get("defects", []):
+                try:
+                    defects.append(
+                        VisualDefect(
+                            target_section_id=str(raw_d.get("target_section_id", "hero")),
+                            screenshot_path=str(raw_d.get("screenshot_path", primary_shot_rel)),
+                            defect_type=str(raw_d.get("defect_type", "visual_layout")),
+                            actionable_instruction=str(raw_d.get("actionable_instruction", "")),
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     status: CritiqueStatus = "defects_found" if defects else "passed"
     report = VisualCriticReport(

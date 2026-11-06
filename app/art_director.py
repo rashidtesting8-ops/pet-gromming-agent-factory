@@ -199,6 +199,10 @@ class CreativeBrief(BaseModel):
     facility_or_van_filename: str | None = None
     primary_cta_label: str
     primary_cta_target: str | None = None
+    editorial_headline: str | None = None
+    editorial_tagline: str | None = None
+    editorial_value_prop: str | None = None
+    suggested_sections: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utc_now)
 
 
@@ -316,6 +320,7 @@ def generate_art_direction(
     *,
     logo_path: str | Path | None = None,
     provenance_records: Sequence[AssetProvenanceRecord] | None = None,
+    llm_adapter: Any = None,
 ) -> tuple[BrandIdentity, CreativeBrief]:
     """Generate and persist `design/brand.json` and `design/creative-brief.json`."""
     project_root = Path(project_folder).resolve()
@@ -394,6 +399,53 @@ def generate_art_direction(
     )
     cta_target = f"tel:{re.sub(r'[^0-9+]', '', phone)}" if phone else None
 
+    # LLM-assisted bespoke editorial copywriting
+    editorial_headline: str | None = None
+    editorial_tagline: str | None = None
+    editorial_value_prop: str | None = None
+    suggested_sections: list[str] = []
+
+    if llm_adapter is not None:
+        facts_summary = "\n".join(
+            f"- {f.get('category')}: {f.get('claim_value')}"
+            for f in facts_list
+            if f.get("claim_value")
+        )
+        tax_str = "Mobile Groomer" if taxonomy.is_mobile_groomer else "Grooming Salon"
+        serves_str = "Dogs & Cats" if (taxonomy.serves_dogs and taxonomy.serves_cats) else "Dogs"
+        prompt = (
+            f"Business: {business_name}\n"
+            f"Taxonomy: {tax_str}\n"
+            f"Serves: {serves_str}\n"
+            f"Verified Facts:\n{facts_summary}\n\n"
+            "Generate bespoke editorial copywriting for this pet grooming website.\n"
+            "Return valid JSON strictly with fields: headline, tagline, value_proposition, "
+            "suggested_section_order.\n"
+            "Never invent discounts, reviews, or prices not in the verified facts."
+        )
+        sys_prompt = (
+            "You are an elite editorial art director for luxury pet care brands. "
+            "Output valid JSON only."
+        )
+        try:
+            resp = llm_adapter.complete(
+                prompt=prompt,
+                system_prompt=sys_prompt,
+                project_id=project_id,
+                stage="art_direction",
+                response_schema="editorial_brief_v1",
+                temperature=0.2,
+            )
+            data = json.loads(resp.content)
+            editorial_headline = data.get("editorial_headline") or data.get("headline")
+            editorial_tagline = data.get("editorial_tagline") or data.get("tagline")
+            editorial_value_prop = data.get("editorial_value_prop") or data.get("value_proposition")
+            sec_order = data.get("suggested_sections") or data.get("suggested_section_order")
+            if isinstance(sec_order, list):
+                suggested_sections = [str(s) for s in sec_order]
+        except Exception:
+            pass
+
     brief = CreativeBrief(
         project_id=project_id,
         business_name=business_name,
@@ -406,6 +458,10 @@ def generate_art_direction(
         facility_or_van_filename=facility_filename,
         primary_cta_label=cta_label,
         primary_cta_target=cta_target,
+        editorial_headline=editorial_headline,
+        editorial_tagline=editorial_tagline,
+        editorial_value_prop=editorial_value_prop,
+        suggested_sections=suggested_sections,
     )
 
     brand_out = project_root / "design" / "brand.json"
