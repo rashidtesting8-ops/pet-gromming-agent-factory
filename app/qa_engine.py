@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import tempfile
 import threading
@@ -185,6 +186,7 @@ class QADefectReport(BaseModel):
     target_url: str
     checked_at: datetime = Field(default_factory=_utc_now)
     passed: bool
+    candidate_sha256: str = Field(default="")
     viewports: list[ViewportQAResult]
 
 
@@ -217,15 +219,22 @@ def _default_playwright_factory() -> Any:
 def run_qa_engine(
     project_folder: str | Path,
     *,
-    html_rel_path: str = "website/index.html",
+    html_rel_path: str | None = None,
     viewport_height: int = 900,
     playwright_factory: Callable[[], Any] | None = None,
 ) -> QADefectReport:
     """Run automated Playwright QA inspections across all 5 breakpoints and save qa-report.json."""
     project_root = Path(project_folder).resolve()
+    if html_rel_path is None:
+        if (project_root / "release-candidate" / "standalone.html").is_file():
+            html_rel_path = "release-candidate/standalone.html"
+        else:
+            html_rel_path = "website/index.html"
     html_file = (project_root / html_rel_path).resolve()
     if not html_file.is_relative_to(project_root) or not html_file.is_file():
         raise ValueError(f"Target HTML file not found inside project: {html_file}")
+
+    candidate_sha256 = hashlib.sha256(html_file.read_bytes()).hexdigest()
 
     screenshots_dir = project_root / "qa" / "screenshots"
     screenshots_dir.mkdir(parents=True, exist_ok=True)
@@ -330,6 +339,7 @@ def run_qa_engine(
         project_id=project_root.name,
         target_url=target_url,
         passed=overall_passed,
+        candidate_sha256=candidate_sha256,
         viewports=viewport_results,
     )
     _atomic_write_text(report_path, report.model_dump_json(indent=2))

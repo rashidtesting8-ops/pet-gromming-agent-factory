@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -29,7 +30,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.approval import approve_and_freeze_release, generate_review_summary
+from app.approval import (
+    _resolve_project_root,
+    approve_release,
+    generate_review_summary,
+    stage_release_candidate,
+    verify_release,
+)
 from app.art_director import generate_art_direction
 from app.cleanup import safe_prune_project
 from app.collector import collect, slugify
@@ -296,7 +303,6 @@ def run_pipeline(
                     "design",
                     "website",
                     "qa",
-                    "delivery",
                 ):
                     (project_root / sub).mkdir(parents=True, exist_ok=True)
                 fallback_pages = [
@@ -486,6 +492,7 @@ def run_pipeline(
             idempotency_key=qa_idemp,
             status="running",
         )
+        stage_release_candidate(project_root)
         qa_report = active_qa_runner(project_root)
 
         # Bounded Critique -> Revise -> QA loop (max 3 cycles)
@@ -531,6 +538,7 @@ def run_pipeline(
                 idempotency_key=revise_idemp,
                 status="completed",
             )
+            stage_release_candidate(project_root)
             qa_report = active_qa_runner(project_root)
 
         if not qa_report.passed:
@@ -571,6 +579,16 @@ def run_pipeline(
             status="completed",
         )
 
+        # Stage candidate standalone and GHL code into release-candidate/ (never delivery/)
+        cand_path, _ = stage_release_candidate(project_root)
+        cand_sha = hashlib.sha256(cand_path.read_bytes()).hexdigest()
+        qa_report_path = project_root / "qa" / "qa-report.json"
+        if qa_report_path.is_file():
+            qa_json = json.loads(qa_report_path.read_text(encoding="utf-8"))
+            if not qa_json.get("candidate_sha256"):
+                qa_json["candidate_sha256"] = cand_sha
+                _atomic_write_text(qa_report_path, json.dumps(qa_json, indent=2))
+
         # Assemble human review summary package
         review_summary = generate_review_summary(project_id, projects_dir=projects_root)
         _atomic_write_text(
@@ -578,46 +596,7 @@ def run_pipeline(
             json.dumps(review_summary, indent=2),
         )
 
-        # Step 8: Human Approval Gate vs. Auto-Approve Test Mode
-        if pause_for_approval and not auto_approve_test:
-            upsert_project(
-                conn,
-                ProjectRecord(
-                    project_id=project_id,
-                    business_name=business_name,
-                    primary_url=url,
-                    status="awaiting_approval",
-                ),
-            )
-            return PipelineRunResult(
-                project_id=project_id,
-                business_name=business_name,
-                primary_url=url,
-                project_folder=project_root,
-                status="awaiting_approval",
-                qa_passed=True,
-                skipped_stages=skipped_stages,
-                review_summary=review_summary,
-                warnings=warnings,
-                errors=errors,
-            )
-
-        # Step 9: Approved Release Freeze, GHL Export & Verified Archive
         export_idemp = build_stage_idempotency_key(project_id, "ghl_exporter", qa_hash)
-        _record_job_transition(
-            conn,
-            project_id=project_id,
-            module_name="ghl_exporter",
-            idempotency_key=export_idemp,
-            status="running",
-        )
-        approve_and_freeze_release(
-            project_id,
-            operator_name="Automated Test Runner",
-            notes="Approved via pipeline execution",
-            projects_dir=projects_root,
-            db_path=resolved_db_path,
-        )
         _record_job_transition(
             conn,
             project_id=project_id,
@@ -632,7 +611,7 @@ def run_pipeline(
                 project_id=project_id,
                 business_name=business_name,
                 primary_url=url,
-                status="completed",
+                status="awaiting_approval",
             ),
         )
         return PipelineRunResult(
@@ -640,7 +619,7 @@ def run_pipeline(
             business_name=business_name,
             primary_url=url,
             project_folder=project_root,
-            status="completed",
+            status="awaiting_approval",
             qa_passed=True,
             skipped_stages=skipped_stages,
             review_summary=review_summary,
@@ -668,15 +647,22 @@ def _handle_approve_subcommand(argv: Sequence[str]) -> int:
         prog="python -m app.pipeline approve",
         description="Approve and freeze an immutable website release and GHL export.",
     )
-    parser.add_argument("--project-id", required=True, help="Target project slug ID")
-    parser.add_argument("--operator", required=True, help="Human reviewer/operator name")
+    parser.add_argument("--project", default=None, help="Target project slug ID or path")
+    parser.add_argument("--project-id", default=None, help="Target project slug ID")
+    parser.add_argument("--version", default="v1", help="Release version identifier (e.g. v1)")
+    parser.add_argument("--operator", default="Dev", help="Human reviewer/operator name")
     parser.add_argument("--notes", default="Verified", help="Approval sign-off notes")
     parser.add_argument("--projects-dir", default="./projects", help="Root projects directory")
     parser.add_argument("--db-path", default=None, help="Optional SQLite DB path")
     args = parser.parse_args(argv)
 
-    approve_and_freeze_release(
-        args.project_id,
+    target_project = args.project or args.project_id
+    if not target_project:
+        parser.error("one of the arguments --project or --project-id is required")
+
+    approve_release(
+        target_project,
+        version=args.version,
         operator_name=args.operator,
         notes=args.notes,
         projects_dir=args.projects_dir,
@@ -702,6 +688,29 @@ def _handle_prune_subcommand(argv: Sequence[str]) -> int:
     project_root = Path(args.projects_dir).resolve() / args.project_id
     safe_prune_project(project_root, dry_run=not bool(args.execute))
     return 0
+
+
+def _handle_verify_subcommand(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.pipeline verify",
+        description="Verify delivery/ integrity against release-manifest.json.",
+    )
+    parser.add_argument("--project", default=None, help="Target project slug ID or path")
+    parser.add_argument("--project-id", default=None, help="Target project slug ID")
+    parser.add_argument("--projects-dir", default="./projects", help="Root projects directory")
+    args = parser.parse_args(argv)
+
+    target_project = args.project or args.project_id
+    if not target_project:
+        parser.error("one of the arguments --project or --project-id is required")
+
+    project_root = _resolve_project_root(target_project, args.projects_dir)
+    try:
+        verify_release(project_root)
+        return 0
+    except Exception as exc:
+        sys.stderr.write(f"Verification failed: {exc}\n")
+        return 1
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -757,11 +766,13 @@ def main(
     *,
     qa_runner: QARunnerFn | None = None,
 ) -> int:
-    args_list = list(argv) if argv is not None else None
+    args_list = list(argv) if argv is not None else sys.argv[1:]
     if args_list and args_list[0] == "approve":
         return _handle_approve_subcommand(args_list[1:])
     if args_list and args_list[0] == "prune":
         return _handle_prune_subcommand(args_list[1:])
+    if args_list and args_list[0] == "verify":
+        return _handle_verify_subcommand(args_list[1:])
 
     parser = build_arg_parser()
     args = parser.parse_args(args_list)

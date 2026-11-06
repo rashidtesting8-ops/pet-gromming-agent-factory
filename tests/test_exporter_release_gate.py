@@ -55,11 +55,8 @@ def _setup_project(tmp_path: Path, *, instagram_rights: bool, website_rights: bo
         },
     ]
 
-    (project / "research/asset-manifest.json").write_text(
-        json.dumps(website_manifest, indent=2), encoding="utf-8"
-    )
-    (project / "research/social-media-manifest.json").write_text(
-        json.dumps(social_manifest, indent=2), encoding="utf-8"
+    (project / "delivery/asset-manifest.json").write_text(
+        json.dumps([*website_manifest, *social_manifest], indent=2), encoding="utf-8"
     )
 
     html = """<!DOCTYPE html>
@@ -77,8 +74,23 @@ def _setup_project(tmp_path: Path, *, instagram_rights: bool, website_rights: bo
 </body>
 </html>
 """
-    (project / "website/index.html").write_text(html, encoding="utf-8")
+    (project / "delivery/standalone.html").write_text(html, encoding="utf-8")
     return project
+
+
+def test_exporter_refuses_when_delivery_not_present_even_if_website_exists(tmp_path: Path) -> None:
+    """Exporter must only read from delivery/, refusing if only website/index.html exists."""
+    project = tmp_path / "unapproved-salon"
+    (project / "website").mkdir(parents=True)
+    (project / "website/index.html").write_text(
+        "<html><body><h1>Only Website</h1></body></html>",
+        encoding="utf-8",
+    )
+    res = export_release(project)
+    assert res["status"] == "blocked_unapproved"
+    assert res["approved_built"] is False
+    assert res["ghl_built"] is False
+    assert not (project / "delivery").exists()
 
 
 def test_exporter_refuses_when_used_asset_has_unconfirmed_rights(tmp_path: Path) -> None:
@@ -132,9 +144,9 @@ def test_exporter_builds_approved_and_ghl_when_all_used_assets_confirmed(tmp_pat
 
 def test_exporter_refuses_when_used_asset_is_missing_from_manifests(tmp_path: Path) -> None:
     project = _setup_project(tmp_path, instagram_rights=True, website_rights=True)
-    # Add an unindexed image to HTML
+    # Add an unindexed image to delivery/standalone.html
     (project / "assets/website/mystery.png").write_bytes(b"mystery")
-    (project / "website/index.html").write_text(
+    (project / "delivery/standalone.html").write_text(
         '<html><body><img src="assets/website/mystery.png"></body></html>',
         encoding="utf-8",
     )

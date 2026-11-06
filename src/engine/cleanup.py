@@ -105,6 +105,13 @@ def cleanup(
     confirm: bool = False,
 ) -> dict[str, Any]:
     project_path, files, keep, removable = get_plan(project)
+    if (project_path / "delivery").is_dir() and (
+        project_path / "delivery" / "release-manifest.json"
+    ).is_file():
+        from app.approval import verify_release
+
+        verify_release(project_path)
+
     archive = archive_path(project_path)
     total = sum(files[r].stat().st_size for r in removable)
     if mode == "plan":

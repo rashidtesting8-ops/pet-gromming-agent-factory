@@ -228,14 +228,17 @@ def test_pipeline_e2e_creates_website_ghl_delivery_and_completes_all_db_jobs(
     index_html_path = project_root / "website" / "index.html"
     css_path = project_root / "website" / "css" / "styles.css"
     js_path = project_root / "website" / "js" / "main.js"
-    approved_html_path = project_root / "delivery" / "approved-homepage.html"
-    ghl_ready_path = project_root / "delivery" / "ghl-ready.html"
+    rc_standalone_path = project_root / "release-candidate" / "standalone.html"
+    rc_approved_path = project_root / "release-candidate" / "approved-homepage.html"
+    rc_ghl_path = project_root / "release-candidate" / "ghl-ready.html"
 
-    # 1. Assert website/index.html, css/styles.css, and js/main.js are created and valid
+    # 1. Pipeline NEVER writes delivery/ automatically; writes only to release-candidate/
+    assert not (project_root / "delivery").exists()
     assert index_html_path.is_file()
     assert css_path.is_file()
     assert js_path.is_file()
-    assert approved_html_path.is_file()
+    assert rc_standalone_path.is_file()
+    assert rc_approved_path.is_file()
 
     html_text = index_html_path.read_text(encoding="utf-8")
     css_text = css_path.read_text(encoding="utf-8")
@@ -264,21 +267,21 @@ def test_pipeline_e2e_creates_website_ghl_delivery_and_completes_all_db_jobs(
     # Accessible mobile drawer and before/after slider in JS
     assert "aria-expanded" in js_text
 
-    # 2. Assert delivery/ghl-ready.html contains scoped #ghl-ev-engine-root-... wrapper and CSS
-    assert ghl_ready_path.is_file()
-    ghl_text = ghl_ready_path.read_text(encoding="utf-8")
+    # 2. Assert release-candidate/ghl-ready.html contains scoped #ghl-ev-engine-root-... wrapper
+    assert rc_ghl_path.is_file()
+    ghl_text = rc_ghl_path.read_text(encoding="utf-8")
     expected_root_id = f"ghl-ev-engine-root-{test_id}"
     assert f'<div id="{expected_root_id}">' in ghl_text
     assert f"#{expected_root_id}" in ghl_text
     assert "<!DOCTYPE" not in ghl_text
     assert "<html" not in ghl_text.lower()
 
-    # 3. Assert all database job states and project record are marked completed
+    # 3. Assert all database job states are completed and project is awaiting_approval
     conn = connect_db(db_path)
     try:
         proj = get_project(conn, test_id)
         assert proj is not None
-        assert proj.status == "completed"
+        assert proj.status == "awaiting_approval"
 
         job_rows = conn.execute(
             "SELECT module_name, status, error_message FROM job_runs WHERE project_id = ?",

@@ -55,18 +55,18 @@ def test_export_ghl_snippet_sanitizes_markup_scopes_css_and_isolates_js(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "paws-salon"
-    (project / "website" / "css").mkdir(parents=True)
-    (project / "website" / "js").mkdir(parents=True)
     (project / "delivery").mkdir(parents=True)
 
-    (project / "website" / "index.html").write_text(
+    (project / "delivery" / "approved-homepage.html").write_text(
         """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Paws Salon</title>
-  <link rel="stylesheet" href="css/main.css">
   <style>
+    :root { --brand: #1e3a8a; }
+    .hero-title { color: var(--brand); }
+    p { line-height: 1.6; }
     body { background: #fff; }
     h1 { color: #111; }
   </style>
@@ -74,26 +74,14 @@ def test_export_ghl_snippet_sanitizes_markup_scopes_css_and_isolates_js(
 <body>
   <header><h1 class="hero-title">Paws Salon</h1></header>
   <main><p>Gentle pet grooming.</p></main>
-  <script src="js/app.js"></script>
-</body>
-</html>
-""",
-        encoding="utf-8",
-    )
-
-    (project / "website" / "css" / "main.css").write_text(
-        """:root { --brand: #1e3a8a; }
-.hero-title { color: var(--brand); }
-p { line-height: 1.6; }
-""",
-        encoding="utf-8",
-    )
-
-    (project / "website" / "js" / "app.js").write_text(
-        """const toggle = root.querySelector('.hero-title');
+  <script>
+const toggle = root.querySelector('.hero-title');
 if (toggle) {
   toggle.setAttribute('data-ready', 'true');
 }
+  </script>
+</body>
+</html>
 """,
         encoding="utf-8",
     )
@@ -130,16 +118,25 @@ if (toggle) {
 
 def test_export_ghl_blocks_global_window_or_document_leakage(tmp_path: Path) -> None:
     project = tmp_path / "leaky-salon"
-    (project / "website" / "js").mkdir(parents=True)
-    (project / "website" / "index.html").write_text(
-        "<html><body><h1>Salon</h1></body></html>",
-        encoding="utf-8",
-    )
-    (project / "website" / "js" / "leak.js").write_text(
-        "window.myGlobalState = { hacked: true };",
+    (project / "delivery").mkdir(parents=True)
+    (project / "delivery" / "approved-homepage.html").write_text(
+        "<html><body><h1>Salon</h1>"
+        "<script>window.myGlobalState = { hacked: true };</script></body></html>",
         encoding="utf-8",
     )
 
     with pytest.raises(GlobalLeakageError):
+        export_ghl_snippet(project)
+
+
+def test_export_ghl_refuses_when_only_website_exists_without_delivery(tmp_path: Path) -> None:
+    """Exporter must only read from delivery/, refusing if only website/index.html exists."""
+    project = tmp_path / "unapproved-salon"
+    (project / "website").mkdir(parents=True)
+    (project / "website" / "index.html").write_text(
+        "<html><body><h1>Unapproved</h1></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="delivery"):
         export_ghl_snippet(project)
 

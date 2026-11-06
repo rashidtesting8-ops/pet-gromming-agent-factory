@@ -260,47 +260,29 @@ def sanitize_and_extract_markup(html_text: str) -> tuple[str, list[str], list[st
     return inner_markup, inline_styles, inline_scripts
 
 
-def export_ghl_snippet(
-    project_folder: str | Path,
+def export_ghl_snippet_from_html(
+    html_text: str,
     *,
-    business_id: str | None = None,
+    business_id: str,
+    extra_css: str = "",
+    extra_js: str = "",
 ) -> str:
-    """Build a self-contained, CSS-scoped, IIFE-isolated GHL snippet at delivery/ghl-ready.html."""
-    project_root = Path(project_folder).resolve()
-    website_dir = project_root / "website"
-    index_path = website_dir / "index.html"
-    if not index_path.is_file():
-        raise ValueError(f"Approved source HTML not found: {index_path}")
-
-    biz_id = business_id or project_root.name
-    root_id = f"ghl-ev-engine-root-{biz_id}"
+    """Transform HTML into a CSS-scoped and IIFE-isolated GHL snippet."""
+    root_id = f"ghl-ev-engine-root-{business_id}"
     root_selector = f"#{root_id}"
 
-    raw_html = index_path.read_text(encoding="utf-8")
-    inner_markup, inline_styles, inline_scripts = sanitize_and_extract_markup(raw_html)
+    inner_markup, inline_styles, inline_scripts = sanitize_and_extract_markup(html_text)
 
-    css_chunks: list[str] = []
-    css_dir = website_dir / "css"
-    if css_dir.is_dir():
-        for css_file in sorted(css_dir.glob("*.css")):
-            if css_file.is_file() and not css_file.is_symlink():
-                css_chunks.append(css_file.read_text(encoding="utf-8"))
+    css_chunks: list[str] = [extra_css] if extra_css.strip() else []
     css_chunks.extend(inline_styles)
-
     combined_raw_css = "\n".join(c for c in css_chunks if c.strip())
     scoped_css = scope_css(combined_raw_css, root_selector) if combined_raw_css else ""
     unscoped = find_unscoped_selectors(scoped_css, root_selector)
     if unscoped:
         raise UnscopedCSSError(f"Unscoped CSS selectors detected: {unscoped}")
 
-    js_chunks: list[str] = []
-    js_dir = website_dir / "js"
-    if js_dir.is_dir():
-        for js_file in sorted(js_dir.glob("*.js")):
-            if js_file.is_file() and not js_file.is_symlink():
-                js_chunks.append(js_file.read_text(encoding="utf-8"))
+    js_chunks: list[str] = [extra_js] if extra_js.strip() else []
     js_chunks.extend(inline_scripts)
-
     combined_raw_js = "\n".join(j for j in js_chunks if j.strip())
     isolated_js = isolate_javascript(combined_raw_js, root_id)
 
@@ -310,9 +292,33 @@ def export_ghl_snippet(
     parts.append(inner_markup)
     parts.append(f"<script>\n{isolated_js}\n</script>")
     parts.append("</div>\n")
+    return "\n".join(parts)
 
-    final_output = "\n".join(parts)
-    out_path = project_root / "delivery" / "ghl-ready.html"
+
+def export_ghl_snippet(
+    project_folder: str | Path,
+    *,
+    business_id: str | None = None,
+) -> str:
+    """Build a self-contained, CSS-scoped, IIFE-isolated GHL snippet from delivery/."""
+    project_root = Path(project_folder).resolve()
+    delivery_dir = project_root / "delivery"
+    if not delivery_dir.is_dir():
+        raise ValueError(f"delivery/ directory not found in {project_root}")
+
+    candidate_files = (
+        delivery_dir / "approved-homepage.html",
+        delivery_dir / "standalone.html",
+    )
+    source_path = next((p for p in candidate_files if p.is_file()), None)
+    if source_path is None:
+        raise ValueError(f"Approved source HTML not found in delivery/ for {project_root}")
+
+    biz_id = business_id or project_root.name
+    raw_html = source_path.read_text(encoding="utf-8")
+    final_output = export_ghl_snippet_from_html(raw_html, business_id=biz_id)
+
+    out_path = delivery_dir / "ghl-ready.html"
     _atomic_write_text(out_path, final_output)
     return final_output
 

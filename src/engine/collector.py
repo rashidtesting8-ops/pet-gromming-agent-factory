@@ -678,7 +678,6 @@ def collect(
         "design",
         "qa",
         "website",
-        "delivery",
     ):
         (folder / sub).mkdir(parents=True, exist_ok=True)
 

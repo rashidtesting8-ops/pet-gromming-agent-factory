@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import stat
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,19 +29,34 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.cleanup import make_archive
 from app.db import ProjectRecord, connect_db, get_project, init_db, upsert_project
-from app.ghl_exporter import export_ghl_snippet
+from app.ghl_exporter import export_ghl_snippet, export_ghl_snippet_from_html
+from app.reviser import compute_section_hashes
+from engine.exporter import check_used_asset_rights, extract_used_assets
 
 
 class ReleaseApprovalGateError(PermissionError):
     """Raised when attempting to export final deliverables without human approval."""
 
 
+class ReleaseVerificationError(ValueError):
+    """Raised when delivery/ files do not match delivery/release-manifest.json."""
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _make_writable(target: Path) -> None:
+    if target.is_file():
+        try:
+            os.chmod(target, target.stat().st_mode | stat.S_IWRITE)
+        except OSError:
+            pass
+
+
 def _atomic_write_text(target: Path, content: str) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
+    _make_writable(target)
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{target.name}.",
         suffix=".tmp",
@@ -49,6 +66,7 @@ def _atomic_write_text(target: Path, content: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
+        _make_writable(target)
         os.replace(tmp_path, target)
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -68,15 +86,19 @@ def _resolve_project_root(
 class ReleaseManifest(BaseModel):
     """Immutable release manifest saved to `delivery/release-manifest.json`."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     project_id: str
+    version: str = "v1"
     version_hash: str
     approved_at: datetime = Field(default_factory=_utc_now)
-    operator_name: str
-    notes: str
+    approver: str = Field(default="Dev")
+    operator_name: str = Field(default="Dev")
+    qa_report_sha256: str = Field(default="")
+    notes: str = ""
     checksum_tree: dict[str, str]
-    asset_signatures: dict[str, str]
+    section_hashes: dict[str, str] = Field(default_factory=dict)
+    asset_signatures: dict[str, str] = Field(default_factory=dict)
 
 
 def generate_review_summary(
@@ -159,19 +181,8 @@ def generate_review_summary(
     }
 
 
-def export_approved_deliverables(
-    project_folder: str | Path,
-    *,
-    is_approved: bool = False,
-    approval_token: str | None = None,
-) -> tuple[Path, Path]:
-    """Compile approved-homepage.html and ghl-ready.html behind the human approval gate."""
-    has_valid_token = isinstance(approval_token, str) and len(approval_token.strip()) >= 4
-    if not is_approved and not has_valid_token:
-        raise ReleaseApprovalGateError(
-            "Deliverable export is locked: require is_approved=True or valid approval_token"
-        )
-
+def stage_release_candidate(project_folder: str | Path) -> tuple[Path, Path]:
+    """Compile candidate standalone HTML and GHL snippet into release-candidate/ (not delivery/)."""
     project_root = Path(project_folder).resolve()
     website_dir = project_root / "website"
     index_path = website_dir / "index.html"
@@ -195,14 +206,47 @@ def export_approved_deliverables(
             f"<script>\n{js_text}\n</script>",
         )
 
-    approved_html_path = project_root / "delivery" / "approved-homepage.html"
-    _atomic_write_text(approved_html_path, html_doc)
+    rc_dir = project_root / "release-candidate"
+    rc_dir.mkdir(parents=True, exist_ok=True)
+
+    standalone_path = rc_dir / "standalone.html"
+    approved_alias_path = rc_dir / "approved-homepage.html"
+    _atomic_write_text(standalone_path, html_doc)
+    _atomic_write_text(approved_alias_path, html_doc)
+
+    ghl_snippet = export_ghl_snippet_from_html(html_doc, business_id=project_root.name)
+    ghl_path = rc_dir / "ghl-ready.html"
+    _atomic_write_text(ghl_path, ghl_snippet)
+
+    return standalone_path, ghl_path
+
+
+def export_approved_deliverables(
+    project_folder: str | Path,
+    *,
+    is_approved: bool = False,
+    approval_token: str | None = None,
+) -> tuple[Path, Path]:
+    """Compile approved-homepage.html and ghl-ready.html behind the human approval gate."""
+    has_valid_token = isinstance(approval_token, str) and len(approval_token.strip()) >= 4
+    if not is_approved and not has_valid_token:
+        raise ReleaseApprovalGateError(
+            "Deliverable export is locked: require is_approved=True or valid approval_token"
+        )
+
+    project_root = Path(project_folder).resolve()
+    standalone_path, _ = stage_release_candidate(project_root)
+
+    delivery_dir = project_root / "delivery"
+    delivery_dir.mkdir(parents=True, exist_ok=True)
+    approved_html_path = delivery_dir / "approved-homepage.html"
+    shutil.copy2(standalone_path, approved_html_path)
 
     export_ghl_snippet(project_root, business_id=project_root.name)
-    ghl_ready_path = project_root / "delivery" / "ghl-ready.html"
+    ghl_ready_path = delivery_dir / "ghl-ready.html"
 
     # Ensure delivery/retained-assets.json exists and is marked approved=True
-    retained_path = project_root / "delivery" / "retained-assets.json"
+    retained_path = delivery_dir / "retained-assets.json"
     retained_assets: list[str] = []
     if retained_path.is_file():
         existing_ret = json.loads(retained_path.read_text(encoding="utf-8"))
@@ -255,52 +299,131 @@ def compute_release_checksum_tree(project_root: Path) -> tuple[str, dict[str, st
     return tree_hasher.hexdigest(), checksum_tree, asset_signatures
 
 
-def approve_and_freeze_release(
-    project_id: str,
-    operator_name: str,
-    notes: str,
+def approve_release(
+    project_id_or_path: str | Path,
+    version: str = "v1",
+    operator_name: str = "Dev",
+    notes: str = "Verified",
     *,
     projects_dir: str | Path = "./projects",
     db_path: str | Path | None = None,
 ) -> str:
-    """Freeze an immutable release hash, write manifest, build ZIP archive, and update SQLite."""
+    """Human approval gate: verifies QA/rights, copies candidate to delivery/ & versions/vN/,
+
+    writes release-manifest.json with per-file and per-section hashes, and makes files read-only.
+    """
     if not operator_name.strip():
         raise ValueError("operator_name must not be empty")
 
-    project_root = _resolve_project_root(project_id, projects_dir)
+    project_root = _resolve_project_root(project_id_or_path, projects_dir)
     if not project_root.is_dir():
         raise ValueError(f"Project directory not found: {project_root}")
 
     resolved_project_id = project_root.name
-    approval_token = hashlib.sha256(
-        f"{resolved_project_id}:{operator_name.strip()}:{notes.strip()}".encode()
-    ).hexdigest()[:16]
+    version = (version or "v1").strip()
 
-    # 1. Unlock and compile delivery/approved-homepage.html and delivery/ghl-ready.html
-    export_approved_deliverables(
-        project_root,
-        is_approved=True,
-        approval_token=approval_token,
+    # 1. Refuse to overwrite an existing approved version
+    version_dir = project_root / "versions" / version
+    if version_dir.exists():
+        raise ReleaseApprovalGateError(
+            f"Version {version} already exists and cannot be overwritten"
+        )
+
+    # 2. Refuse if QA report has critical defects
+    qa_path = project_root / "qa" / "qa-report.json"
+    if not qa_path.is_file():
+        raise ReleaseApprovalGateError("QA report not found; cannot authorize release")
+    qa_data = json.loads(qa_path.read_text(encoding="utf-8"))
+    if not qa_data.get("passed", False) or qa_data.get("critical_defects"):
+        defects = qa_data.get("critical_defects") or ["QA report passed is false"]
+        raise ReleaseApprovalGateError(f"QA report detected critical defects: {defects}")
+
+    # Ensure release-candidate/ is staged
+    rc_dir = project_root / "release-candidate"
+    if not (rc_dir / "standalone.html").is_file():
+        stage_release_candidate(project_root)
+
+    candidate_html = rc_dir / "standalone.html"
+    current_candidate_sha = hashlib.sha256(candidate_html.read_bytes()).hexdigest()
+
+    # Refuse if QA report candidate sha256 differs from current candidate (stale QA)
+    qa_candidate_sha = qa_data.get("candidate_sha256")
+    if not qa_candidate_sha or qa_candidate_sha != current_candidate_sha:
+        raise ReleaseApprovalGateError(
+            f"Stale QA report: tested candidate sha256 ({qa_candidate_sha}) "
+            f"differs from current candidate ({current_candidate_sha})"
+        )
+
+    # 3. Refuse if any referenced asset has rights_confirmed_for_preview == False
+    offending_assets = check_used_asset_rights(project_root, source_html_path=candidate_html)
+    if offending_assets:
+        raise ReleaseApprovalGateError(
+            f"Release blocked: asset rights_confirmed_for_preview is false for {offending_assets}"
+        )
+
+    # 4. Copy candidate into delivery/ and versions/vN/
+    delivery_dir = project_root / "delivery"
+    delivery_dir.mkdir(parents=True, exist_ok=True)
+    version_dir.mkdir(parents=True, exist_ok=True)
+
+    used_assets = extract_used_assets(candidate_html.read_text(encoding="utf-8"))
+    retained_payload = {
+        "approved": True,
+        "assets": used_assets,
+    }
+    _atomic_write_text(
+        delivery_dir / "retained-assets.json",
+        json.dumps(retained_payload, indent=2),
     )
 
-    # 2. Compute deterministic SHA-256 checksum tree across website/ and delivery/
+    for fname in ("standalone.html", "approved-homepage.html", "ghl-ready.html"):
+        src_f = rc_dir / fname
+        if src_f.is_file():
+            _make_writable(delivery_dir / fname)
+            shutil.copy2(src_f, delivery_dir / fname)
+            shutil.copy2(src_f, version_dir / fname)
+
+    _make_writable(delivery_dir / "retained-assets.json")
+    shutil.copy2(delivery_dir / "retained-assets.json", version_dir / "retained-assets.json")
+
+    # 5. Compute per-section hashes and release manifest
+    approved_html_text = (delivery_dir / "approved-homepage.html").read_text(encoding="utf-8")
+    section_hashes = compute_section_hashes(
+        approved_html_text, project_folder=project_root / "website"
+    )
+
     version_hash, checksum_tree, asset_signatures = compute_release_checksum_tree(project_root)
 
+    qa_report_sha256 = hashlib.sha256(qa_path.read_bytes()).hexdigest()
+    approver_name = operator_name.strip()
     manifest = ReleaseManifest(
         project_id=resolved_project_id,
+        version=version,
         version_hash=version_hash,
-        operator_name=operator_name.strip(),
+        approved_at=_utc_now(),
+        approver=approver_name,
+        operator_name=approver_name,
+        qa_report_sha256=qa_report_sha256,
         notes=notes.strip(),
         checksum_tree=checksum_tree,
+        section_hashes=section_hashes,
         asset_signatures=asset_signatures,
     )
-    manifest_path = project_root / "delivery" / "release-manifest.json"
-    _atomic_write_text(manifest_path, manifest.model_dump_json(indent=2))
+    manifest_json = manifest.model_dump_json(indent=2)
+    _atomic_write_text(delivery_dir / "release-manifest.json", manifest_json)
+    _atomic_write_text(version_dir / "release-manifest.json", manifest_json)
 
-    # 3. Compile immutable archive projects/_archives/<business-id>-approved.zip
+    # 6. Make all files in delivery/ and versions/vN/ read-only
+    for folder in (delivery_dir, version_dir):
+        for fpath in folder.rglob("*"):
+            if fpath.is_file():
+                current_mode = fpath.stat().st_mode
+                os.chmod(fpath, current_mode & ~stat.S_IWRITE)
+
+    # 7. Compile immutable archive projects/_archives/<business-id>-approved.zip
     make_archive(project_root)
 
-    # 4. Atomically set project status to 'approved' in SQLite via immediate_transaction
+    # 8. Update SQLite project record
     resolved_db = (
         Path(db_path).resolve()
         if db_path is not None
@@ -325,3 +448,59 @@ def approve_and_freeze_release(
         conn.close()
 
     return version_hash
+
+
+def approve_and_freeze_release(
+    project_id: str,
+    operator_name: str,
+    notes: str,
+    *,
+    version: str = "v1",
+    projects_dir: str | Path = "./projects",
+    db_path: str | Path | None = None,
+) -> str:
+    """Freeze an immutable release hash, write manifest, build ZIP archive, and update SQLite."""
+    return approve_release(
+        project_id_or_path=project_id,
+        version=version,
+        operator_name=operator_name,
+        notes=notes,
+        projects_dir=projects_dir,
+        db_path=db_path,
+    )
+
+
+def verify_release(project_folder: str | Path) -> bool:
+    """Re-hash delivery/ against delivery/release-manifest.json and refuse on mismatch."""
+    project_root = Path(project_folder).resolve()
+    delivery_dir = project_root / "delivery"
+    manifest_path = delivery_dir / "release-manifest.json"
+    if not manifest_path.is_file():
+        raise ReleaseVerificationError(f"Release manifest not found at {manifest_path}")
+
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checksum_tree: dict[str, str] = manifest_data.get("checksum_tree", {})
+
+    for rel_path, expected_sha in sorted(checksum_tree.items()):
+        if not rel_path.startswith("delivery/"):
+            continue
+        disk_file = project_root / rel_path
+        if not disk_file.is_file():
+            raise ReleaseVerificationError(f"Missing delivery file: {rel_path}")
+        actual_sha = hashlib.sha256(disk_file.read_bytes()).hexdigest()
+        if actual_sha != expected_sha:
+            raise ReleaseVerificationError(
+                f"Delivery file hash mismatch for {rel_path}: "
+                f"expected {expected_sha}, got {actual_sha}"
+            )
+
+    for p in sorted(delivery_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(project_root).as_posix()
+        if rel == "delivery/release-manifest.json":
+            continue
+        if rel not in checksum_tree:
+            raise ReleaseVerificationError(f"Untracked delivery file found: {rel}")
+
+    return True

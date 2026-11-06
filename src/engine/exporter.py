@@ -25,7 +25,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 ASSET_REF_RE = re.compile(
-    r"(?:\.\./|\./|/|^)(assets/(?:website|instagram|facebook|optimized|thumbnails)/[A-Za-z0-9._/-]+)"
+    r"(?:\.\./|\./|/|^)(assets/[A-Za-z0-9._/-]+)"
 )
 
 
@@ -115,6 +115,8 @@ def _load_manifest_index(project_root: Path) -> dict[str, dict[str, Any]]:
                     norm = _normalize_asset_ref(val)
                     if norm:
                         index[norm] = row
+                        fname = Path(norm).name
+                        index[f"assets/optimized/{fname}"] = row
     return index
 
 
@@ -125,11 +127,19 @@ def check_used_asset_rights(
 ) -> list[dict[str, Any]]:
     """Return a list of any used assets that lack rights_confirmed_for_preview == True."""
     project_root = Path(project_folder).resolve()
-    html_file = (
-        Path(source_html_path).resolve()
-        if source_html_path is not None
-        else (project_root / "website" / "index.html")
-    )
+    if source_html_path is not None:
+        html_file = Path(source_html_path).resolve()
+    elif (project_root / "delivery" / "standalone.html").is_file():
+        html_file = project_root / "delivery" / "standalone.html"
+    elif (project_root / "delivery" / "approved-homepage.html").is_file():
+        html_file = project_root / "delivery" / "approved-homepage.html"
+    elif (project_root / "release-candidate" / "standalone.html").is_file():
+        html_file = project_root / "release-candidate" / "standalone.html"
+    elif (project_root / "website" / "index.html").is_file():
+        html_file = project_root / "website" / "index.html"
+    else:
+        raise ValueError(f"Source HTML file not found in {project_root}")
+
     if not html_file.is_file():
         raise ValueError(f"Source HTML file not found: {html_file}")
 
@@ -210,6 +220,28 @@ def export_release(
         raise ValueError("Project folder does not exist")
 
     delivery_dir = project_root / "delivery"
+    if delivery_dir.is_dir() and (delivery_dir / "release-manifest.json").is_file():
+        from app.approval import ReleaseVerificationError, verify_release
+        try:
+            verify_release(project_root)
+        except (ReleaseVerificationError, Exception) as exc:
+            return {
+                "status": "blocked_verification_failure",
+                "approved_built": False,
+                "ghl_built": False,
+                "offending_assets": [],
+                "reason": f"Delivery verification failed: {exc}",
+            }
+
+    if not delivery_dir.is_dir() and source_html_path is None:
+        return {
+            "status": "blocked_unapproved",
+            "approved_built": False,
+            "ghl_built": False,
+            "offending_assets": [],
+            "reason": "Approved release not found under delivery/",
+        }
+
     approved_out = delivery_dir / "approved-homepage.html"
     ghl_out = delivery_dir / "ghl-ready.html"
 
@@ -223,11 +255,21 @@ def export_release(
             "reason": "Approved release already exists under delivery/ and is immutable",
         }
 
-    html_file = (
-        Path(source_html_path).resolve()
-        if source_html_path is not None
-        else (project_root / "website" / "index.html")
-    )
+    if source_html_path is not None:
+        html_file = Path(source_html_path).resolve()
+    elif (delivery_dir / "standalone.html").is_file():
+        html_file = delivery_dir / "standalone.html"
+    elif (delivery_dir / "approved-homepage.html").is_file():
+        html_file = delivery_dir / "approved-homepage.html"
+    else:
+        return {
+            "status": "blocked_unapproved",
+            "approved_built": False,
+            "ghl_built": False,
+            "offending_assets": [],
+            "reason": "Approved source HTML not found under delivery/",
+        }
+
     if not html_file.is_file():
         raise ValueError(f"Source HTML file not found: {html_file}")
 

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import stat
+import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+from app.approval import ReleaseApprovalGateError
 from app.db import connect_db, get_project
 from app.pipeline import build_stage_idempotency_key, main, run_pipeline
 from app.qa_engine import BREAKPOINTS, QADefectReport, ViewportQAResult
@@ -44,10 +50,19 @@ def _fast_qa_runner(project_folder: str | Path, **_kwargs: Any) -> QADefectRepor
                 passed=True,
             )
         )
+    cand_file = project_root / "release-candidate" / "standalone.html"
+    cand_sha = ""
+    if cand_file.is_file():
+        cand_sha = hashlib.sha256(cand_file.read_bytes()).hexdigest()
+    elif (project_root / "website" / "index.html").is_file():
+        index_b = (project_root / "website" / "index.html").read_bytes()
+        cand_sha = hashlib.sha256(index_b).hexdigest()
+
     report = QADefectReport(
         project_id=project_root.name,
         target_url=f"http://localhost/{project_root.name}/website/index.html",
         passed=True,
+        candidate_sha256=cand_sha,
         viewports=viewports,
     )
     (project_root / "qa" / "qa-report.json").write_text(
@@ -153,18 +168,22 @@ def test_pipeline_resumption_skips_completed_stages_after_curation(
     # Verify idempotency key format: f"{project_id}_{stage_name}_{input_manifest_hash}"
     sample_key = build_stage_idempotency_key(biz_id, "curate", "abc123manifest")
     assert sample_key == f"{biz_id}_curate_abc123manifest"
+    # Even with --auto-approve-test, pipeline NEVER writes delivery/
+    assert not (projects_dir / biz_id / "delivery").exists()
+    assert (projects_dir / biz_id / "release-candidate" / "standalone.html").is_file()
+    assert (projects_dir / biz_id / "release-candidate" / "ghl-ready.html").is_file()
 
 
 def test_pipeline_pauses_at_approval_gate_and_unlocks_on_cli_approve_and_prune(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify ghl-ready.html is blocked when paused for approval, then built on CLI approve."""
+    """Verify pipeline only writes release-candidate/, and CLI approve gates delivery/."""
     projects_dir = tmp_path / "projects"
     db_path = projects_dir / "editvista.sqlite3"
     biz_id = "gated-salon"
 
     with _ephemeral_grooming_salon_server() as target_url:
-        # Run with default pause_for_approval=True (no --auto-approve-test)
         res = run_pipeline(
             url=target_url,
             business_name="Gated Pet Salon",
@@ -181,19 +200,28 @@ def test_pipeline_pauses_at_approval_gate_and_unlocks_on_cli_approve_and_prune(
     ghl_path = project_root / "delivery" / "ghl-ready.html"
     archive_zip = projects_dir / "_archives" / f"{biz_id}-approved.zip"
 
-    # 1. Pipeline pauses at awaiting_approval; ghl-ready.html and archive ZIP are NOT yet created
+    # 1. Pipeline writes release-candidate/, NEVER delivery/
     assert res.status == "awaiting_approval"
     assert (project_root / "website" / "index.html").is_file()
     assert (project_root / "qa" / "visual-critique.json").is_file()
+    assert (project_root / "release-candidate" / "standalone.html").is_file()
+    assert (project_root / "release-candidate" / "ghl-ready.html").is_file()
+    assert not (project_root / "delivery").exists()
     assert not ghl_path.exists()
     assert not archive_zip.exists()
 
-    # 2. Execute CLI subcommand: `python -m app.pipeline approve --project-id <ID> ...`
-    approve_exit = main(
+    # 2. Because collector sets rights_confirmed_for_preview=False by default,
+    #    `approve --project X --version v1` MUST refuse before human confirms asset rights
+    monkeypatch.setattr(
+        sys,
+        "argv",
         [
+            "pipeline.py",
             "approve",
-            "--project-id",
-            biz_id,
+            "--project",
+            str(project_root),
+            "--version",
+            "v1",
             "--operator",
             "Dev",
             "--notes",
@@ -202,11 +230,31 @@ def test_pipeline_pauses_at_approval_gate_and_unlocks_on_cli_approve_and_prune(
             str(projects_dir),
             "--db-path",
             str(db_path),
-        ]
+        ],
     )
+    with pytest.raises(ReleaseApprovalGateError, match="rights_confirmed_for_preview"):
+        main()
+    assert not (project_root / "delivery").exists()
+
+    # 3. Human reviewer confirms rights_confirmed_for_preview=True in research/asset-manifest.json
+    manifest_file = project_root / "research" / "asset-manifest.json"
+    manifest_rows = json.loads(manifest_file.read_text(encoding="utf-8"))
+    for row in manifest_rows:
+        row["rights_confirmed_for_preview"] = True
+    manifest_file.write_text(json.dumps(manifest_rows, indent=2), encoding="utf-8")
+
+    # 4. Now `approve --project X --version v1` succeeds
+    #    and copies candidate into delivery/ & versions/v1/
+    approve_exit = main()
     assert approve_exit == 0
     assert ghl_path.is_file()
+    assert (project_root / "versions" / "v1" / "ghl-ready.html").is_file()
+    assert (ghl_path.stat().st_mode & stat.S_IWRITE) == 0
     assert archive_zip.is_file()
+
+    # 5. Second approve of the same version (v1) fails
+    with pytest.raises(ReleaseApprovalGateError, match="v1"):
+        main()
 
     conn = connect_db(db_path)
     try:
@@ -216,21 +264,25 @@ def test_pipeline_pauses_at_approval_gate_and_unlocks_on_cli_approve_and_prune(
     finally:
         conn.close()
 
-    # 3. Execute CLI subcommand: `python -m app.pipeline prune --project-id <ID> --execute`
+    # 6. Execute CLI subcommand via sys.argv (argv=None): `python -m app.pipeline prune ...`
     (project_root / "tmp").mkdir(parents=True, exist_ok=True)
     temp_junk = project_root / "tmp" / "scratch.tmp"
     temp_junk.write_bytes(b"junk")
 
-    prune_exit = main(
+    monkeypatch.setattr(
+        sys,
+        "argv",
         [
+            "pipeline.py",
             "prune",
             "--project-id",
             biz_id,
             "--execute",
             "--projects-dir",
             str(projects_dir),
-        ]
+        ],
     )
+    prune_exit = main()
     assert prune_exit == 0
     assert not temp_junk.exists()
     assert ghl_path.is_file()

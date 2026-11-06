@@ -63,13 +63,98 @@ def _atomic_write_text(target: Path, content: str) -> None:
         raise
 
 
-def compute_section_hashes(html_text: str) -> dict[str, str]:
-    """Compute SHA-256 digests of the exact raw substring for every `<section id='...'>`."""
+def compute_section_hashes(
+    html_or_source: str | Path,
+    css_source: str | Path | dict[str, str] | None = None,
+    *,
+    project_folder: str | Path | None = None,
+) -> dict[str, str]:
+    """Compute SHA-256 digests across sections (data-section based, HTML+CSS)."""
+    if isinstance(html_or_source, Path) or (
+        isinstance(html_or_source, str)
+        and "<" not in html_or_source
+        and Path(html_or_source).exists()
+    ):
+        p = Path(html_or_source).resolve()
+        if p.is_dir():
+            if project_folder is None:
+                project_folder = p
+            for cand in (
+                "website/index.html",
+                "release-candidate/standalone.html",
+                "delivery/approved-homepage.html",
+                "index.html",
+            ):
+                if (p / cand).is_file():
+                    html_text = (p / cand).read_text(encoding="utf-8")
+                    break
+            else:
+                html_text = ""
+        else:
+            html_text = p.read_text(encoding="utf-8")
+            if project_folder is None:
+                project_folder = p.parent
+    else:
+        html_text = str(html_or_source)
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    data_sec_tags = soup.find_all(attrs={"data-section": True})
+    raw_sections: dict[str, str] = {}
+    if data_sec_tags:
+        for t in data_sec_tags:
+            sname = str(t["data-section"]).strip()
+            if sname:
+                raw_sections[sname] = str(t)
+    else:
+        # Fallback for legacy HTML without data-section attributes
+        for sec in soup.find_all("section"):
+            sid = sec.get("id")
+            if sid and str(sid).strip():
+                raw_sections[str(sid).strip()] = str(sec)
+
+    css_map: dict[str, str] = {}
+    if isinstance(css_source, dict):
+        css_map = {str(k): str(v) for k, v in css_source.items()}
+    else:
+        css_dir = None
+        if project_folder is not None:
+            pf = Path(project_folder).resolve()
+            for candidate_dir in (pf / "website" / "css", pf / "css", pf):
+                if candidate_dir.is_dir():
+                    css_dir = candidate_dir
+                    break
+        if css_dir is not None:
+            for sname in raw_sections:
+                cfile = css_dir / f"{sname}.css"
+                if cfile.is_file():
+                    css_map[sname] = cfile.read_text(encoding="utf-8").strip()
+
+        style_text = ""
+        if isinstance(css_source, str):
+            style_text += "\n" + css_source
+        for style_tag in soup.find_all("style"):
+            style_text += "\n" + style_tag.get_text()
+
+        if style_text:
+            for sname in raw_sections:
+                if sname not in css_map:
+                    m = re.search(
+                        rf"/\*\s*section:\s*{re.escape(sname)}\s*\*/([\s\S]*?)(?:/\*\s*(?:endsection|section):|\Z)",
+                        style_text,
+                        re.IGNORECASE,
+                    )
+                    if m:
+                        css_map[sname] = m.group(1).strip()
+
     hashes: dict[str, str] = {}
-    for match in SECTION_BLOCK_RE.finditer(html_text):
-        sec_id = match.group("id")
-        raw_block = match.group(1)
-        hashes[sec_id] = hashlib.sha256(raw_block.encode("utf-8")).hexdigest()
+    for sname, sec_html in raw_sections.items():
+        sec_css = css_map.get(sname, "").strip()
+        if sec_css:
+            combined = f"{sec_html.strip()}\n/* CSS */\n{sec_css}"
+        else:
+            combined = sec_html.strip()
+        hashes[sname] = hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
     return hashes
 
 
@@ -207,6 +292,7 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
     index_path = project_root / "website" / "index.html"
     css_path = project_root / "website" / "css" / "styles.css"
     critique_path = project_root / "qa" / "visual-critique.json"
+    website_dir = project_root / "website"
     changelog_path = project_root / "design" / "change-log.md"
 
     if not index_path.is_file():
@@ -219,7 +305,7 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
     )
 
     original_html = index_path.read_text(encoding="utf-8")
-    before_hashes = compute_section_hashes(original_html)
+    before_hashes = compute_section_hashes(original_html, project_folder=website_dir)
 
     defects_by_section: dict[str, list[VisualDefect]] = {}
     for defect in critique.defects:
@@ -249,7 +335,7 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
         return patched_block
 
     updated_html = SECTION_BLOCK_RE.sub(_replace_flagged_section, original_html)
-    after_hashes = compute_section_hashes(updated_html)
+    after_hashes = compute_section_hashes(updated_html, project_folder=website_dir)
 
     # Verify invariant: every untouched section's SHA-256 hash MUST remain identical
     untouched_ids = [sid for sid in before_hashes if sid not in defects_by_section]

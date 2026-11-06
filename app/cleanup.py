@@ -44,6 +44,13 @@ def safe_prune_project(
       in `assets/website/`, `assets/instagram/`, `assets/facebook/`, and temporary folders.
     """
     project_path = Path(project).resolve()
+    if (project_path / "delivery").is_dir() and (
+        project_path / "delivery" / "release-manifest.json"
+    ).is_file():
+        from app.approval import verify_release
+
+        verify_release(project_path)
+
     archive_zip = archive_path(project_path)
     if not archive_zip.is_file():
         raise ValueError(
