@@ -22,7 +22,9 @@ services:
       - PROJECTS_DIR=/data/projects
     volumes:
       - ./projects:/data/projects
-    mem_limit: 512m
+    shm_size: 1g
+    mem_limit: 2g
+    mem_reservation: 1g
 volumes:
   n8n_data:
 

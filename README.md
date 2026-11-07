@@ -655,7 +655,7 @@ make test        # uv run pytest
 ### Containerized Orchestration (`docker-compose.yml`)
 The repository includes a production-tested Compose configuration running two resource-isolated services bound strictly to loopback:
 - **`n8n`** (`127.0.0.1:5678`, `mem_limit: 1g`): Self-hosted workflow automation engine with state persisted in the `n8n_data` named volume.
-- **`collector`** (`127.0.0.1:8787`, `mem_limit: 512m`): Containerized FastAPI collector service mounting local `./projects` to `/data/projects`.
+- **`collector`** (`127.0.0.1:8787`, `mem_limit: 2g`, `shm_size: 1g`): Containerized FastAPI collector service mounting local `./projects` to `/data/projects` with dedicated shared memory buffer for Playwright Chromium.
 
 ```bash
 # Build and run containerized services in background
