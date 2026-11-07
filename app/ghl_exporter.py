@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from bs4 import BeautifulSoup, Doctype, Tag
 
@@ -16,6 +17,9 @@ _GLOBAL_LEAK_RE = re.compile(
 
 _CSS_COMMENT_RE = re.compile(r"/\*[\s\S]*?\*/")
 _ROOT_LEADING_RE = re.compile(r"^(?::root|html|body)\b", re.I)
+_CSS_URL_PATTERN = re.compile(r"url\(\s*(['\"]?)([^)]*?)\1\s*\)", re.IGNORECASE)
+_SRC_POSTER_PATTERN = re.compile(r"\b(src|poster)\s*=\s*(['\"])(.*?)\2", re.IGNORECASE)
+_SRCSET_PATTERN = re.compile(r"\bsrcset\s*=\s*(['\"])(.*?)\2", re.IGNORECASE)
 
 
 class GlobalLeakageError(ValueError):
@@ -24,6 +28,83 @@ class GlobalLeakageError(ValueError):
 
 class UnscopedCSSError(ValueError):
     """Raised when any CSS rule selector lacks the mandatory root scoping prefix."""
+
+
+def _is_absolute_url(url: str) -> bool:
+    trimmed = url.strip()
+    lower = trimmed.lower()
+    return lower.startswith(
+        ("http://", "https://", "//", "data:", "blob:", "mailto:", "tel:", "#", "javascript:")
+    )
+
+
+def _resolve_asset_url(
+    raw_url: str,
+    cdn_base_url: str | None,
+    asset_url_map: dict[str, str] | None,
+) -> str:
+    raw_clean = raw_url.strip()
+    if not raw_clean or _is_absolute_url(raw_clean):
+        return raw_url
+
+    unslashed = raw_clean.lstrip("/")
+    slashed = f"/{unslashed}"
+
+    if asset_url_map:
+        if raw_clean in asset_url_map:
+            return asset_url_map[raw_clean]
+        if unslashed in asset_url_map:
+            return asset_url_map[unslashed]
+        if slashed in asset_url_map:
+            return asset_url_map[slashed]
+
+    if cdn_base_url:
+        base = cdn_base_url.rstrip("/")
+        return f"{base}/{unslashed}"
+
+    return raw_url
+
+
+def rewrite_ghl_asset_urls(
+    html_text: str,
+    *,
+    cdn_base_url: str | None = None,
+    asset_url_map: dict[str, str] | None = None,
+) -> str:
+    """Rewrite relative asset paths (images, backgrounds, srcset) to CDN URLs.
+
+    Optionally maps to explicit remote endpoint dictionaries.
+    """
+    if not cdn_base_url and not asset_url_map:
+        return html_text
+
+    def _replace_css_url(match: re.Match[str]) -> str:
+        raw_val = match.group(2).strip()
+        resolved = _resolve_asset_url(raw_val, cdn_base_url, asset_url_map)
+        return f'url("{resolved}")'
+
+    def _replace_src_poster(match: re.Match[str]) -> str:
+        attr = match.group(1)
+        quote = match.group(2)
+        raw_val = match.group(3).strip()
+        resolved = _resolve_asset_url(raw_val, cdn_base_url, asset_url_map)
+        return f"{attr}={quote}{resolved}{quote}"
+
+    def _replace_srcset(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        raw_val = match.group(2)
+        candidates = []
+        for cand in raw_val.split(","):
+            parts = cand.strip().split()
+            if parts:
+                parts[0] = _resolve_asset_url(parts[0], cdn_base_url, asset_url_map)
+                candidates.append(" ".join(parts))
+        return f"srcset={quote}{', '.join(candidates)}{quote}"
+
+    out = _CSS_URL_PATTERN.sub(_replace_css_url, html_text)
+    out = _SRC_POSTER_PATTERN.sub(_replace_src_poster, out)
+    out = _SRCSET_PATTERN.sub(_replace_srcset, out)
+    return out
 
 
 def _atomic_write_text(target: Path, content: str) -> None:
@@ -266,8 +347,23 @@ def export_ghl_snippet_from_html(
     business_id: str,
     extra_css: str = "",
     extra_js: str = "",
+    cdn_base_url: str | None = None,
+    asset_url_map: dict[str, str] | None = None,
 ) -> str:
     """Transform HTML into a CSS-scoped and IIFE-isolated GHL snippet."""
+    if cdn_base_url or asset_url_map:
+        html_text = rewrite_ghl_asset_urls(
+            html_text,
+            cdn_base_url=cdn_base_url,
+            asset_url_map=asset_url_map,
+        )
+        if extra_css:
+            extra_css = rewrite_ghl_asset_urls(
+                extra_css,
+                cdn_base_url=cdn_base_url,
+                asset_url_map=asset_url_map,
+            )
+
     root_id = f"ghl-ev-engine-root-{business_id}"
     root_selector = f"#{root_id}"
 
@@ -299,6 +395,8 @@ def export_ghl_snippet(
     project_folder: str | Path,
     *,
     business_id: str | None = None,
+    cdn_base_url: str | None = None,
+    asset_url_map: dict[str, str] | None = None,
 ) -> str:
     """Build a self-contained, CSS-scoped, IIFE-isolated GHL snippet from delivery/."""
     project_root = Path(project_folder).resolve()
@@ -316,11 +414,85 @@ def export_ghl_snippet(
 
     biz_id = business_id or project_root.name
     raw_html = source_path.read_text(encoding="utf-8")
-    final_output = export_ghl_snippet_from_html(raw_html, business_id=biz_id)
+    final_output = export_ghl_snippet_from_html(
+        raw_html,
+        business_id=biz_id,
+        cdn_base_url=cdn_base_url,
+        asset_url_map=asset_url_map,
+    )
 
     out_path = delivery_dir / "ghl-ready.html"
     _atomic_write_text(out_path, final_output)
     return final_output
+
+
+def validate_ghl_embed_simulation(
+    host_page_html: str,
+    root_id: str,
+) -> dict[str, Any]:
+    """Validate that an embedded snippet inside a host page is isolated, scoped, and leak-free."""
+    soup = BeautifulSoup(host_page_html, "html.parser")
+    root_el = soup.find(id=root_id)
+    root_element_found = isinstance(root_el, Tag)
+
+    unscoped_selectors: list[str] = []
+    global_leak_detected = False
+    asset_urls_absolute = True
+
+    if root_element_found and isinstance(root_el, Tag):
+        root_selector = f"#{root_id}"
+        # 1. Check style blocks inside root
+        for style_tag in root_el.find_all("style"):
+            css_text = style_tag.get_text()
+            unscoped = find_unscoped_selectors(css_text, root_selector)
+            unscoped_selectors.extend(unscoped)
+
+        # 2. Check scripts inside root for global leakage
+        for script_tag in root_el.find_all("script"):
+            script_text = script_tag.get_text()
+            if _GLOBAL_LEAK_RE.search(script_text):
+                global_leak_detected = True
+
+        # 3. Check asset URLs in root
+        for media_tag in root_el.find_all(["img", "source", "video", "audio"]):
+            src = media_tag.get("src")
+            if src and not _is_absolute_url(str(src)):
+                asset_urls_absolute = False
+            srcset = media_tag.get("srcset")
+            if srcset:
+                for candidate in str(srcset).split(","):
+                    cand_parts = candidate.strip().split()
+                    if cand_parts and not _is_absolute_url(cand_parts[0]):
+                        asset_urls_absolute = False
+
+        for style_tag in root_el.find_all("style"):
+            for match in _CSS_URL_PATTERN.finditer(style_tag.get_text()):
+                url_val = match.group(2).strip()
+                if url_val and not _is_absolute_url(url_val):
+                    asset_urls_absolute = False
+
+        for tag_with_style in root_el.find_all(style=True):
+            style_attr = str(tag_with_style.get("style", ""))
+            for match in _CSS_URL_PATTERN.finditer(style_attr):
+                url_val = match.group(2).strip()
+                if url_val and not _is_absolute_url(url_val):
+                    asset_urls_absolute = False
+
+    is_valid = (
+        root_element_found
+        and len(unscoped_selectors) == 0
+        and not global_leak_detected
+        and asset_urls_absolute
+    )
+
+    return {
+        "is_valid": is_valid,
+        "root_element_found": root_element_found,
+        "unscoped_css_count": len(unscoped_selectors),
+        "unscoped_selectors": unscoped_selectors,
+        "global_leak_detected": global_leak_detected,
+        "asset_urls_absolute": asset_urls_absolute,
+    }
 
 
 def main() -> None:
@@ -329,8 +501,15 @@ def main() -> None:
     )
     parser.add_argument("--project", required=True, help="Path to project directory")
     parser.add_argument("--business-id", default=None, help="Optional explicit business ID")
+    parser.add_argument(
+        "--cdn-base-url", default=None, help="Base URL for remote CDN asset hosting"
+    )
     args = parser.parse_args()
-    export_ghl_snippet(args.project, business_id=args.business_id)
+    export_ghl_snippet(
+        args.project,
+        business_id=args.business_id,
+        cdn_base_url=args.cdn_base_url,
+    )
 
 
 if __name__ == "__main__":
