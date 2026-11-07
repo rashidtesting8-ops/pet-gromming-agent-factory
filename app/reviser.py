@@ -12,6 +12,7 @@ Enforces the surgical patching rule from `AGENTS.md` and `docs/DEVELOPER_BRIEF.m
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -322,6 +323,7 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
         )
 
     modified_ids: list[str] = []
+    patched_sections_map: dict[str, str] = {}
 
     def _replace_flagged_section(match: re.Match[str]) -> str:
         raw_block = match.group(1)
@@ -332,9 +334,36 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
         patched_block = _patch_single_section_markup(raw_block, defects_by_section[sec_id])
         if patched_block != raw_block:
             modified_ids.append(sec_id)
+            patched_sections_map[sec_id] = patched_block
         return patched_block
 
     updated_html = SECTION_BLOCK_RE.sub(_replace_flagged_section, original_html)
+
+    # Synchronize canonical per-section HTML files under website/sections/<sid>.html
+    sections_dir = website_dir / "sections"
+    if sections_dir.is_dir():
+        for sid, p_html in patched_sections_map.items():
+            sec_file = sections_dir / f"{sid}.html"
+            if sec_file.is_file():
+                _atomic_write_text(sec_file, p_html.strip() + "\n")
+
+    # Append targeted CSS rules scoped strictly to the flagged #section_id selectors
+    if css_path.is_file() and modified_ids:
+        existing_css = css_path.read_text(encoding="utf-8")
+        css_patches: list[str] = []
+        for sid in modified_ids:
+            rule = (
+                f"#{sid} {{ padding: clamp(1.25rem, 2.5vw, 2rem); "
+                "background-color: var(--ev-surface, #FFFFFF); }}"
+            )
+            css_patches.append(rule)
+            sec_css_file = website_dir / "css" / f"{sid}.css"
+            if sec_css_file.is_file():
+                sec_css_text = sec_css_file.read_text(encoding="utf-8")
+                if rule not in sec_css_text:
+                    _atomic_write_text(sec_css_file, sec_css_text.rstrip() + "\n" + rule + "\n")
+        _atomic_write_text(css_path, existing_css.rstrip() + "\n" + "\n".join(css_patches) + "\n")
+
     after_hashes = compute_section_hashes(updated_html, project_folder=website_dir)
 
     # Verify invariant: every untouched section's SHA-256 hash MUST remain identical
@@ -344,17 +373,9 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
             raise RuntimeError(f"Surgical revision invariant violated on untouched section #{sid}")
 
     _atomic_write_text(index_path, updated_html)
-
-    # Append targeted CSS rules scoped strictly to the flagged #section_id selectors
-    if css_path.is_file() and modified_ids:
-        existing_css = css_path.read_text(encoding="utf-8")
-        css_patches: list[str] = []
-        for sid in modified_ids:
-            css_patches.append(
-                f"#{sid} {{ padding: clamp(1.25rem, 2.5vw, 2rem); "
-                "background-color: var(--ev-surface, #FFFFFF); }}"
-            )
-        _atomic_write_text(css_path, existing_css.rstrip() + "\n" + "\n".join(css_patches) + "\n")
+    hashes_file = website_dir / "section-hashes.json"
+    if hashes_file.is_file() or sections_dir.is_dir():
+        _atomic_write_text(hashes_file, json.dumps(after_hashes, indent=2))
 
     now_ts = _utc_now()
     _append_changelog(

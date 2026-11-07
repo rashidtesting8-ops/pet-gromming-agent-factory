@@ -321,9 +321,13 @@ def approve_release(
 
     resolved_project_id = project_root.name
     version = (version or "v1").strip()
+    if ".." in version or "/" in version or "\\" in version:
+        raise ValueError(f"Invalid version identifier: {version}")
 
     # 1. Refuse to overwrite an existing approved version
-    version_dir = project_root / "versions" / version
+    version_dir = (project_root / "versions" / version).resolve()
+    if not version_dir.is_relative_to((project_root / "versions").resolve()):
+        raise ValueError(f"Invalid version path traversal: {version}")
     if version_dir.exists():
         raise ReleaseApprovalGateError(
             f"Version {version} already exists and cannot be overwritten"
@@ -385,6 +389,15 @@ def approve_release(
 
     _make_writable(delivery_dir / "retained-assets.json")
     shutil.copy2(delivery_dir / "retained-assets.json", version_dir / "retained-assets.json")
+
+    # Snapshot referenced assets into version_dir so the version is self-contained
+    for rel_asset in used_assets:
+        src_asset = (project_root / rel_asset).resolve()
+        if src_asset.is_relative_to(project_root) and src_asset.is_file():
+            dst_asset = version_dir / rel_asset
+            dst_asset.parent.mkdir(parents=True, exist_ok=True)
+            _make_writable(dst_asset)
+            shutil.copy2(src_asset, dst_asset)
 
     # 5. Compute per-section hashes and release manifest
     approved_html_text = (delivery_dir / "approved-homepage.html").read_text(encoding="utf-8")
@@ -502,5 +515,18 @@ def verify_release(project_folder: str | Path) -> bool:
             continue
         if rel not in checksum_tree:
             raise ReleaseVerificationError(f"Untracked delivery file found: {rel}")
+
+    # Verify all released asset signatures recorded in release-manifest.json
+    asset_signatures: dict[str, str] = manifest_data.get("asset_signatures", {})
+    for rel_asset, expected_asset_sha in sorted(asset_signatures.items()):
+        asset_file = project_root / rel_asset
+        if not asset_file.is_file():
+            raise ReleaseVerificationError(f"Missing released asset: {rel_asset}")
+        actual_asset_sha = hashlib.sha256(asset_file.read_bytes()).hexdigest()
+        if actual_asset_sha != expected_asset_sha:
+            raise ReleaseVerificationError(
+                f"Released asset hash mismatch for {rel_asset}: "
+                f"expected {expected_asset_sha}, got {actual_asset_sha}"
+            )
 
     return True

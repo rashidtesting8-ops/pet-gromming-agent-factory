@@ -708,7 +708,13 @@ class LLMAdapter:
         if schema_id is None and response_schema is not None:
             schema_id = getattr(response_schema, "__name__", str(response_schema))
 
-        active_model = model or getattr(self.provider, "model_name", "default-model")
+        active_model = (
+            model
+            or getattr(self.provider, "model_name", None)
+            or getattr(self.provider, "default_model", None)
+            or "default-model"
+        )
+        effective_max_tokens = max_tokens if max_tokens is not None else 1024
         cache_key = self.compute_cache_key(
             prompt,
             images,
@@ -802,7 +808,7 @@ class LLMAdapter:
                 model=active_model,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=effective_max_tokens,
                 response_schema=response_schema,
                 stage=stage,
                 project_id=project_id,

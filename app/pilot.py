@@ -77,15 +77,75 @@ def _create_mock_image(
     width: int,
     height: int,
     text: str,
-    bg_color: tuple[int, int, int] = (27, 54, 93),
+    bg_color: tuple[int, int, int] = (243, 239, 234),
 ) -> bytes:
+    """Create a high-contrast luxury editorial pet portrait illustration."""
     img = Image.new("RGB", (width, height), color=bg_color)
     draw = ImageDraw.Draw(img)
-    x0, y0 = width // 6, height // 6
-    x1, y1 = width - x0, height - y0
-    draw.rectangle([x0, y0, x1, y1], outline=(255, 255, 255), width=3)
+
+    # Outer gallery frame and warm editorial matting
+    pad_x, pad_y = max(12, width // 18), max(12, height // 18)
+    draw.rectangle(
+        [pad_x, pad_y, width - pad_x, height - pad_y],
+        fill=(250, 248, 245),
+        outline=(27, 54, 93),
+        width=3,
+    )
+    inner_x, inner_y = pad_x + 12, pad_y + 12
+    draw.rectangle(
+        [inner_x, inner_y, width - inner_x, height - inner_y],
+        outline=(217, 138, 43),
+        width=2,
+    )
+
+    # Stylized studio portrait backdrop circle
+    cx, cy = width // 2, height // 2
+    r = min(width, height) // 3
+    draw.ellipse(
+        [cx - r, cy - r, cx + r, cy + r],
+        fill=(27, 54, 93),
+        outline=(217, 138, 43),
+        width=4,
+    )
+
+    # Stylized pet silhouette (head, ears, collar) inside the studio circle
+    ear_w, ear_h = r // 3, r // 2
+    draw.ellipse(
+        [cx - r // 2 - ear_w // 2, cy - r // 2 - ear_h // 2, cx - r // 6, cy + ear_h // 3],
+        fill=(217, 138, 43),
+    )
+    draw.ellipse(
+        [cx + r // 6, cy - r // 2 - ear_h // 2, cx + r // 2 + ear_w // 2, cy + ear_h // 3],
+        fill=(217, 138, 43),
+    )
+    head_r = int(r * 0.48)
+    draw.ellipse(
+        [cx - head_r, cy - head_r // 2, cx + head_r, cy + int(head_r * 1.15)],
+        fill=(250, 248, 245),
+    )
+    # Eyes and nose
+    eye_r = max(3, r // 16)
+    draw.ellipse(
+        [cx - head_r // 2 - eye_r, cy - eye_r, cx - head_r // 2 + eye_r, cy + eye_r],
+        fill=(15, 30, 54),
+    )
+    draw.ellipse(
+        [cx + head_r // 2 - eye_r, cy - eye_r, cx + head_r // 2 + eye_r, cy + eye_r],
+        fill=(15, 30, 54),
+    )
+    nose_r = max(4, r // 11)
+    draw.ellipse(
+        [cx - nose_r, cy + head_r // 4 - nose_r, cx + nose_r, cy + head_r // 4 + nose_r],
+        fill=(27, 54, 93),
+    )
+    # Luxury gold collar ribbon
+    draw.rectangle(
+        [cx - head_r // 2, cy + int(head_r * 0.85), cx + head_r // 2, cy + int(head_r * 1.02)],
+        fill=(217, 138, 43),
+    )
+
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    img.save(buf, format="JPEG", quality=90)
     return buf.getvalue()
 
 
@@ -576,9 +636,23 @@ def run_single_pilot_business(
     )
 
     image_selection = {
-        "hero_image": {"filename": hero_filename, "object_position": "50% 50%"},
-        "grooming_gallery": [{"filename": fn} for fn in gallery_filenames],
-        "salon_facility_or_van": {"filename": facility_filename},
+        "hero_image": {
+            "filename": hero_filename,
+            "relative_path": f"assets/optimized/{hero_filename}" if hero_filename else None,
+            "object_position": "50% 35%",
+        },
+        "grooming_gallery": [
+            {
+                "filename": fn,
+                "relative_path": f"assets/optimized/{fn}",
+                "object_position": "50% 35%",
+            }
+            for fn in gallery_filenames
+        ],
+        "salon_facility_or_van": {
+            "filename": facility_filename,
+            "relative_path": f"assets/optimized/{facility_filename}" if facility_filename else None,
+        },
     }
     _atomic_write_text(
         project_root / "design/image-selection.json",
@@ -591,58 +665,55 @@ def run_single_pilot_business(
     # 6. Semantic Website Generation
     generate_website(project_root)
 
-    # 7. QA Engine & Screenshots
-    if qa_runner is not None:
-        qa_runner(project_root)
-    else:
-        # Default mock QA runner
-        screenshots_dir = project_root / "qa/screenshots"
-        screenshots_dir.mkdir(parents=True, exist_ok=True)
-        viewports = []
-        for label, width in BREAKPOINTS:
-            shot_path = screenshots_dir / f"{width}px.png"
-            shot_path.write_bytes(_create_mock_image(width, int(width * 0.75), label))
-            viewports.append(
-                ViewportQAResult(
-                    label=label,
-                    width=width,
-                    screenshot_path=shot_path.relative_to(project_root).as_posix(),
-                    horizontal_overflow=False,
-                    scroll_width=width,
-                    inner_width=width,
-                    broken_assets=[],
-                    console_errors=[],
-                    contrast_failures=[],
-                    passed=True,
-                )
-            )
+    def _execute_qa_pass() -> None:
+        stage_release_candidate(project_root)
         cand_file = project_root / "release-candidate/standalone.html"
-        cand_sha = ""
-        if cand_file.is_file():
-            cand_sha = hashlib.sha256(cand_file.read_bytes()).hexdigest()
-        qa_rep = QADefectReport(
-            project_id=spec.slug,
-            target_url=f"http://localhost/{spec.slug}/website/index.html",
-            passed=True,
-            candidate_sha256=cand_sha,
-            viewports=viewports,
+        cand_sha = (
+            hashlib.sha256(cand_file.read_bytes()).hexdigest() if cand_file.is_file() else ""
         )
-        _atomic_write_text(project_root / "qa/qa-report.json", qa_rep.model_dump_json(indent=2))
+        if qa_runner is not None:
+            rep = qa_runner(project_root)
+            if not rep.candidate_sha256 and cand_sha:
+                rep.candidate_sha256 = cand_sha
+                _atomic_write_text(
+                    project_root / "qa/qa-report.json", rep.model_dump_json(indent=2)
+                )
+        else:
+            screenshots_dir = project_root / "qa/screenshots"
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            viewports = []
+            for label, width in BREAKPOINTS:
+                shot_path = screenshots_dir / f"{width}px.png"
+                shot_path.write_bytes(_create_mock_image(width, int(width * 0.75), label))
+                viewports.append(
+                    ViewportQAResult(
+                        label=label,
+                        width=width,
+                        screenshot_path=shot_path.relative_to(project_root).as_posix(),
+                        horizontal_overflow=False,
+                        scroll_width=width,
+                        inner_width=width,
+                        broken_assets=[],
+                        console_errors=[],
+                        contrast_failures=[],
+                        passed=True,
+                    )
+                )
+            qa_rep = QADefectReport(
+                project_id=spec.slug,
+                target_url=f"http://localhost/{spec.slug}/website/index.html",
+                passed=True,
+                candidate_sha256=cand_sha,
+                viewports=viewports,
+            )
+            _atomic_write_text(
+                project_root / "qa/qa-report.json", qa_rep.model_dump_json(indent=2)
+            )
 
-    # 8. Critique & Revision Loop
+    # 7. Initial QA pass -> Critique & Revision Loop -> Final QA pass on staged candidate
+    _execute_qa_pass()
     critique_res = run_critique_revision_loop(project_root, max_iterations=2)
-
-    # 9. Stage Release Candidate
-    stage_release_candidate(project_root)
-
-    # 10. Update QA report candidate_sha256 so approval doesn't fail on stale QA
-    cand_path = project_root / "release-candidate/standalone.html"
-    curr_cand_sha = hashlib.sha256(cand_path.read_bytes()).hexdigest()
-    qa_path = project_root / "qa/qa-report.json"
-    if qa_path.is_file():
-        qa_json = json.loads(qa_path.read_text(encoding="utf-8"))
-        qa_json["candidate_sha256"] = curr_cand_sha
-        _atomic_write_text(qa_path, json.dumps(qa_json, indent=2))
+    _execute_qa_pass()
 
     # 11. Approve & Freeze Release
     manifest_sha = approve_release(

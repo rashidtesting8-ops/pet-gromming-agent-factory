@@ -51,6 +51,15 @@ def render_gallery(
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page(viewport={"width": 1280, "height": 900})
+
+            def _enforce_ssrf_boundary(route: Any) -> None:
+                try:
+                    safe_url(route.request.url)
+                    route.continue_()
+                except Exception:
+                    route.abort()
+
+            page.route("**/*", _enforce_ssrf_boundary)
             page.goto(url, wait_until="domcontentloaded", timeout=20000)
             for _ in range(max(0, min(6, max_scrolls))):
                 page.evaluate("window.scrollTo(0,document.body.scrollHeight)")

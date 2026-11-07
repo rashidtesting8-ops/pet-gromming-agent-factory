@@ -286,6 +286,45 @@ def _build_wireframe(taxonomy: BusinessTaxonomy) -> WireframeStructure:
     )
 
 
+def _synthesize_editorial_copy(
+    business_name: str,
+    taxonomy: BusinessTaxonomy,
+    wireframe: WireframeStructure,
+) -> tuple[str, str, str, list[str]]:
+    """Synthesize deterministic luxury editorial copy tailored to the business archetype."""
+    if taxonomy.is_mobile_groomer:
+        headline = f"{business_name} — Private Driveway Spa and Mobile Grooming"
+        tagline = (
+            "One-on-one, cage-free luxury grooming delivered directly to your doorstep "
+            "in our self-contained heated hydro-bath mobile studio."
+        )
+        value_prop = (
+            "Zero kennel wait times, climate-controlled mobile sanitation, and "
+            "dedicated individual attention for stress-free coat care."
+        )
+    elif taxonomy.serves_dogs and taxonomy.serves_cats:
+        headline = f"{business_name} — Bespoke Canine and Feline Grooming Atelier"
+        tagline = (
+            "Species-segregated, tranquil spa suites crafted for discerning dogs and cats "
+            "with holistic coat conditioning and breed-standard scissoring."
+        )
+        value_prop = (
+            "Dedicated feline quiet hours and signature canine hydro-massage baths "
+            "designed around your companion comfort and coat health."
+        )
+    else:
+        headline = f"{business_name} — Bespoke Coat Styling and Luxury Pet Spa"
+        tagline = (
+            "Artisanal hand-scissoring, botanical hydro-baths, and calm one-on-one "
+            "grooming tailored to every breed and coat temperament."
+        )
+        value_prop = (
+            "Unhurried salon appointments, skin-safe botanical formulations, and "
+            "meticulous finishing by dedicated pet stylists."
+        )
+    return headline, tagline, value_prop, list(wireframe.ordered_sections)
+
+
 def _resolve_logo_path(
     project_root: Path,
     logo_path: str | Path | None,
@@ -399,17 +438,25 @@ def generate_art_direction(
     )
     cta_target = f"tel:{re.sub(r'[^0-9+]', '', phone)}" if phone else None
 
-    # LLM-assisted bespoke editorial copywriting
-    editorial_headline: str | None = None
-    editorial_tagline: str | None = None
-    editorial_value_prop: str | None = None
-    suggested_sections: list[str] = []
+    # Deterministic luxury editorial defaults, overridden when LLM adapter is provided
+    (
+        default_headline,
+        default_tagline,
+        default_value_prop,
+        default_sections,
+    ) = _synthesize_editorial_copy(business_name, taxonomy, wireframe)
+    editorial_headline: str | None = default_headline
+    editorial_tagline: str | None = default_tagline
+    editorial_value_prop: str | None = default_value_prop
+    suggested_sections: list[str] = default_sections
 
     if llm_adapter is not None:
         facts_summary = "\n".join(
             f"- {f.get('category')}: {f.get('claim_value')}"
             for f in facts_list
             if f.get("claim_value")
+            and bool(f.get("is_verified", False))
+            and str(f.get("status", "verified")) == "verified"
         )
         tax_str = "Mobile Groomer" if taxonomy.is_mobile_groomer else "Grooming Salon"
         serves_str = "Dogs & Cats" if (taxonomy.serves_dogs and taxonomy.serves_cats) else "Dogs"
@@ -437,11 +484,19 @@ def generate_art_direction(
                 temperature=0.2,
             )
             data = json.loads(resp.content)
-            editorial_headline = data.get("editorial_headline") or data.get("headline")
-            editorial_tagline = data.get("editorial_tagline") or data.get("tagline")
-            editorial_value_prop = data.get("editorial_value_prop") or data.get("value_proposition")
+            editorial_headline = (
+                data.get("editorial_headline") or data.get("headline") or default_headline
+            )
+            editorial_tagline = (
+                data.get("editorial_tagline") or data.get("tagline") or default_tagline
+            )
+            editorial_value_prop = (
+                data.get("editorial_value_prop")
+                or data.get("value_proposition")
+                or default_value_prop
+            )
             sec_order = data.get("suggested_sections") or data.get("suggested_section_order")
-            if isinstance(sec_order, list):
+            if isinstance(sec_order, list) and sec_order:
                 suggested_sections = [str(s) for s in sec_order]
         except Exception:
             pass

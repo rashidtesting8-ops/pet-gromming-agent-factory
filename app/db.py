@@ -314,7 +314,7 @@ def upsert_asset_provenance(
                 asset_id, project_id, sha256_hash, phash,
                 source_url, local_path, rights_confirmed_for_preview
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(asset_id) DO UPDATE SET
+            ON CONFLICT(project_id, asset_id) DO UPDATE SET
                 sha256_hash = excluded.sha256_hash,
                 phash = excluded.phash,
                 source_url = excluded.source_url,

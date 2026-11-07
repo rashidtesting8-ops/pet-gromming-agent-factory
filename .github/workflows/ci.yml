@@ -22,8 +22,11 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv sync --frozen --dev
+      - name: Install dependencies (including browser extra)
+        run: uv sync --frozen --dev --extra browser
+
+      - name: Install Playwright Chromium browser
+        run: uv run playwright install --with-deps chromium
 
       - name: Run Ruff linter
         run: uv run ruff check .

@@ -35,6 +35,8 @@ FORBIDDEN_URL_PREFIXES: tuple[str, ...] = ("http://", "https://", "//", "javascr
 
 def validate_section_html(name: str, new_html: str) -> None:
     """Validate revised section HTML markup for security and structural integrity."""
+    if not name or ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid section name: {name!r}")
     encoded = new_html.encode("utf-8")
     if len(encoded) > MAX_SECTION_HTML_BYTES:
         raise ValueError(
@@ -133,12 +135,50 @@ def rebuild_index_from_sections(
     esc_title = html.escape(title)
 
     canonical_main_order = ["hero", "services", "gallery", "before-after", "contact"]
-    main_section_names = [name for name in canonical_main_order if name in sections_map]
-    other_sections = sorted([
-        k for k in sections_map.keys()
-        if k not in canonical_main_order and k not in ("header", "footer")
-    ])
-    all_main_names = main_section_names + other_sections
+    alias_to_section = {
+        "hero": "hero",
+        "hero_editorial_showcase": "hero",
+        "hero_with_instant_call_cta": "hero",
+        "services": "services",
+        "services_and_pricing": "services",
+        "segregated_dog_and_cat_pricing_tabs": "services",
+        "gallery": "gallery",
+        "grooming_gallery": "gallery",
+        "before-after": "before-after",
+        "contact": "contact",
+        "location_hours_and_booking_cta": "contact",
+    }
+
+    preferred_order: list[str] = []
+    brief_cand = wdir.parent / "design" / "creative-brief.json"
+    if brief_cand.is_file():
+        try:
+            b_data = json.loads(brief_cand.read_text(encoding="utf-8"))
+            raw_sug = b_data.get("suggested_sections")
+            if isinstance(raw_sug, list):
+                for item in raw_sug:
+                    mapped = alias_to_section.get(str(item).strip(), str(item).strip())
+                    if (
+                        mapped in sections_map
+                        and mapped not in ("header", "footer")
+                        and mapped not in preferred_order
+                    ):
+                        preferred_order.append(mapped)
+        except Exception:
+            pass
+
+    for name in canonical_main_order:
+        if name in sections_map and name not in preferred_order:
+            preferred_order.append(name)
+
+    other_sections = sorted(
+        [
+            k
+            for k in sections_map.keys()
+            if k not in preferred_order and k not in ("header", "footer")
+        ]
+    )
+    all_main_names = preferred_order + other_sections
     main_body = "\n    ".join(sections_map[k] for k in all_main_names)
 
     html_doc = f"""<!DOCTYPE html>
@@ -207,9 +247,12 @@ def _contrast_ratio(fg: tuple[int, int, int], bg: tuple[int, int, int]) -> float
 
 
 def _ensure_wcag_aa_on_white(hex_color: str) -> str:
-    """Ensure color has >= 4.5:1 contrast ratio against white (#FFFFFF) for headings and CTAs."""
+    """Ensure color has >= 4.5:1 contrast ratio against light editorial surfaces."""
     rgb = _hex_to_rgb(hex_color)
-    if _contrast_ratio(rgb, (255, 255, 255)) >= 4.7:
+    if (
+        _contrast_ratio(rgb, (255, 255, 255)) >= 4.7
+        and _contrast_ratio(rgb, (243, 239, 234)) >= 4.6
+    ):
         return hex_color.upper()
     return FALLBACK_NAVY_HEX
 
@@ -262,10 +305,17 @@ def _build_base_css(primary_hex: str, secondary_hex: str, accent_hex: str) -> st
   --ev-secondary: {secondary_hex};
   --ev-accent: {accent_hex};
   --ev-surface: #FFFFFF;
-  --ev-bg: #F8FAFC;
+  --ev-surface-alt: #F3EFEA;
+  --ev-surface-dark: #0F1E36;
+  --ev-bg: #FAF8F5;
   --ev-text: #0F172A;
   --ev-muted: #334155;
-  --ev-border: #CBD5E1;
+  --ev-border: #E2DCD3;
+  --ev-font-display: "Playfair Display", "Cormorant Garamond", "Instrument Serif", Georgia, serif;
+  --ev-font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ev-radius-lg: 20px;
+  --ev-radius-md: 12px;
+  --ev-shadow-soft: 0 18px 42px -12px rgba(15, 23, 42, 0.08);
 }}
 * {{
   box-sizing: border-box;
@@ -273,32 +323,79 @@ def _build_base_css(primary_hex: str, secondary_hex: str, accent_hex: str) -> st
   padding: 0;
 }}
 body {{
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--ev-font-sans);
   background-color: var(--ev-bg);
   color: var(--ev-text);
-  line-height: 1.6;
+  line-height: 1.65;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}}
+h1, h2, h3, .ev-serif {{
+  font-family: var(--ev-font-display);
+  letter-spacing: -0.015em;
 }}
 img {{
   max-width: 100%;
   height: auto;
   display: block;
 }}
+.ev-eyebrow {{
+  display: inline-block;
+  font-family: var(--ev-font-sans);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ev-primary);
+  background-color: var(--ev-surface-alt);
+  border: 1px solid var(--ev-border);
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  margin-bottom: 1rem;
+}}
 .cta, .btn {{
   display: inline-block;
   background-color: var(--ev-primary);
   color: #FFFFFF;
   text-decoration: none;
+  font-family: var(--ev-font-sans);
   font-weight: 700;
-  padding: 0.75rem 1.35rem;
-  border-radius: 8px;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  padding: 0.9rem 1.65rem;
+  border-radius: 999px;
   border: none;
   cursor: pointer;
+  box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}}
+.cta:hover, .btn:hover {{
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.32);
+}}
+.ev-btn-secondary {{
+  display: inline-block;
+  background-color: var(--ev-surface);
+  color: var(--ev-primary);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--ev-primary);
 }}
 .ev-main {{
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 3rem;
+  padding: 2rem 1.25rem 4rem;
+}}
+@media (prefers-reduced-motion: reduce) {{
+  *, *::before, *::after {{
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }}
 }}
 """
 
@@ -307,37 +404,52 @@ def _build_header_css() -> str:
     return """.ev-header {
   background-color: var(--ev-surface);
   border-bottom: 1px solid var(--ev-border);
-  padding: 1rem 1.25rem;
+  padding: 1.1rem 1.25rem;
 }
 .ev-nav {
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 1.25rem;
+}
+.ev-brand-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  text-decoration: none;
+}
+.ev-brand-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid var(--ev-border);
 }
 .ev-brand-title {
-  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  font-family: var(--ev-font-display);
+  font-size: clamp(1.25rem, 2.2vw, 1.65rem);
   font-weight: 700;
   color: var(--ev-primary);
   text-decoration: none;
+  letter-spacing: -0.01em;
 }
 .ev-nav-toggle {
   background-color: var(--ev-primary);
   color: #FFFFFF;
   border: none;
-  border-radius: 6px;
-  padding: 0.5rem 0.85rem;
-  font-size: 0.95rem;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
 }
 .ev-nav-drawer {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 1.5rem;
   list-style: none;
   align-items: center;
 }
@@ -348,6 +460,8 @@ def _build_header_css() -> str:
   color: var(--ev-primary);
   text-decoration: none;
   font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
 }
 """
 
@@ -356,31 +470,72 @@ def _build_hero_css() -> str:
     return """.ev-hero {
   background-color: var(--ev-surface);
   border: 1px solid var(--ev-border);
-  border-radius: 12px;
-  padding: clamp(1.25rem, 3vw, 2.5rem);
-  margin-bottom: 2rem;
+  border-radius: var(--ev-radius-lg);
+  padding: clamp(1.75rem, 4vw, 3.5rem);
+  margin-bottom: 2.75rem;
+  box-shadow: var(--ev-shadow-soft);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: clamp(1.5rem, 3.5vw, 3rem);
   align-items: center;
 }
+.ev-hero-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
 .ev-hero-title {
-  font-size: clamp(1.75rem, 3.5vw, 2.75rem);
+  font-family: var(--ev-font-display);
+  font-size: clamp(2rem, 4vw, 3.25rem);
   color: var(--ev-primary);
-  line-height: 1.2;
-  margin-bottom: 0.75rem;
+  line-height: 1.12;
+  margin-bottom: 1rem;
 }
 .ev-hero-subtitle {
-  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
+  color: var(--ev-text);
+  margin-bottom: 0.85rem;
+  max-width: 58ch;
+}
+.ev-hero-value {
+  font-size: 0.96rem;
   color: var(--ev-muted);
-  margin-bottom: 1.25rem;
+  border-left: 3px solid var(--ev-secondary);
+  padding-left: 0.9rem;
+  margin-bottom: 1.5rem;
+  max-width: 54ch;
+}
+.ev-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+.ev-trust-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  width: 100%;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--ev-border);
+}
+.ev-trust-pill {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ev-primary);
+  background-color: var(--ev-surface-alt);
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
 }
 .ev-hero-media {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 16px;
   overflow: hidden;
-  aspect-ratio: 16 / 10;
-  background-color: #E2E8F0;
+  aspect-ratio: 4 / 3;
+  background-color: var(--ev-surface-alt);
+  border: 1px solid var(--ev-border);
+  box-shadow: 0 14px 32px -10px rgba(15, 23, 42, 0.14);
 }
 .ev-hero-img {
   width: 100%;
@@ -394,49 +549,158 @@ def _build_services_css() -> str:
     return """.ev-section {
   background-color: var(--ev-surface);
   border: 1px solid var(--ev-border);
-  border-radius: 12px;
-  padding: clamp(1.25rem, 2.5vw, 2rem);
+  border-radius: var(--ev-radius-lg);
+  padding: clamp(1.75rem, 3.5vw, 3rem);
+  margin-bottom: 2.5rem;
+  box-shadow: var(--ev-shadow-soft);
+}
+.ev-section-header {
   margin-bottom: 1.75rem;
+  max-width: 65ch;
 }
 .ev-section-title {
-  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  font-family: var(--ev-font-display);
+  font-size: clamp(1.6rem, 3vw, 2.35rem);
   color: var(--ev-primary);
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+.ev-section-lead {
+  color: var(--ev-muted);
+  font-size: 1.02rem;
+}
+.ev-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  margin-bottom: 1.5rem;
+}
+.ev-menu-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 1.1rem 1.25rem;
+  background-color: var(--ev-bg);
+  border: 1px solid var(--ev-border);
+  border-radius: var(--ev-radius-md);
+}
+.ev-menu-leader {
+  flex: 1 1 60px;
+  border-bottom: 1px dashed var(--ev-border);
+  margin: 0 0.75rem;
+  min-width: 24px;
 }
 .ev-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 1.35rem;
 }
 .ev-card {
   background-color: var(--ev-bg);
   border: 1px solid var(--ev-border);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: var(--ev-radius-md);
+  padding: 1.35rem;
 }
 .ev-card-title {
-  font-size: 1.1rem;
+  font-family: var(--ev-font-display);
+  font-size: 1.2rem;
   color: var(--ev-primary);
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.45rem;
 }
 .ev-price-badge {
   display: inline-block;
   background-color: var(--ev-primary);
   color: #FFFFFF;
   font-weight: 700;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  margin-top: 0.35rem;
+  font-size: 0.95rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+}
+.ev-van-showcase {
+  background-color: var(--ev-surface-dark);
+  color: #FFFFFF;
+  border-radius: var(--ev-radius-md);
+  padding: clamp(1.35rem, 2.5vw, 2rem);
+  margin-bottom: 1.75rem;
+}
+.ev-van-showcase h3 {
+  color: #FFFFFF;
+  font-size: 1.35rem;
+  margin-bottom: 0.6rem;
+}
+.ev-van-showcase p {
+  color: #F1F5F9;
+  margin-bottom: 1rem;
+}
+.ev-van-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 0.85rem;
+  list-style: none;
+}
+.ev-van-features li {
+  background-color: #1B365D;
+  color: #FFFFFF;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.ev-species-showcase {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.ev-species-card {
+  background-color: var(--ev-surface-alt);
+  border: 1px solid var(--ev-border);
+  border-radius: var(--ev-radius-md);
+  padding: 1.35rem;
+}
+.ev-species-badge {
+  display: inline-block;
+  background-color: var(--ev-primary);
+  color: #FFFFFF;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  margin-bottom: 0.65rem;
 }
 """
 
 
 def _build_gallery_css() -> str:
-    return """.ev-gallery-img {
+    return """.ev-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 1.25rem;
+}
+.ev-bento-item {
+  position: relative;
+  border-radius: var(--ev-radius-md);
+  overflow: hidden;
+  border: 1px solid var(--ev-border);
+  background-color: var(--ev-surface-alt);
+}
+.ev-gallery-img {
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--ev-radius-md);
+}
+.ev-bento-caption {
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ev-primary);
+  background-color: var(--ev-surface);
+  border-top: 1px solid var(--ev-border);
 }
 """
 
@@ -444,8 +708,8 @@ def _build_gallery_css() -> str:
 def _build_before_after_css() -> str:
     return """.ev-ba-slider {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 1.25rem;
   align-items: center;
 }
 """
@@ -462,11 +726,25 @@ def _build_contact_css() -> str:
 
 def _build_footer_css() -> str:
     return """.ev-footer {
-  background-color: var(--ev-surface);
-  border-top: 1px solid var(--ev-border);
-  padding: 1.5rem 1.25rem;
+  background-color: var(--ev-surface-dark);
+  border-top: 3px solid var(--ev-secondary);
+  padding: 2.5rem 1.25rem;
   text-align: center;
-  color: var(--ev-muted);
+  color: #F8FAFC;
+}
+.ev-footer-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+}
+.ev-footer-brand {
+  font-family: var(--ev-font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #FFFFFF;
 }
 """
 
@@ -498,27 +776,31 @@ def _build_js(has_before_after: bool) -> str:
     slider_logic = ""
     if has_before_after:
         slider_logic = """
-  var rangeInput = document.querySelector('[data-ev-ba-range]');
-  var afterWrap = document.querySelector('[data-ev-ba-after]');
-  if (rangeInput && afterWrap) {
-    rangeInput.addEventListener('input', function(evt) {
-      var target = evt.target;
-      if (target && typeof target.value === 'string') {
-        afterWrap.setAttribute('data-split', target.value);
-      }
-    });
-  }"""
+    var rangeInput = root.querySelector('[data-ev-ba-range]');
+    var afterWrap = root.querySelector('[data-ev-ba-after]');
+    if (rangeInput && afterWrap) {
+      rangeInput.addEventListener('input', function(evt) {
+        var target = evt.target;
+        if (target && typeof target.value === 'string') {
+          afterWrap.setAttribute('data-split', target.value);
+        }
+      });
+    }"""
 
-    return f"""var toggleBtn = document.querySelector('[data-ev-nav-toggle]');
-var navDrawer = document.querySelector('[data-ev-nav-drawer]');
-if (toggleBtn && navDrawer) {{
-  toggleBtn.addEventListener('click', function() {{
-    var expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-    var nextState = !expanded;
-    toggleBtn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
-    navDrawer.setAttribute('data-collapsed', nextState ? 'false' : 'true');
-  }});
-}}{slider_logic}
+    return f"""var scopes = document.querySelectorAll('.ev-ghl-scope');
+var roots = scopes.length > 0 ? Array.prototype.slice.call(scopes) : [document];
+roots.forEach(function(root) {{
+  var toggleBtn = root.querySelector('[data-ev-nav-toggle]');
+  var navDrawer = root.querySelector('[data-ev-nav-drawer]');
+  if (toggleBtn && navDrawer) {{
+    toggleBtn.addEventListener('click', function() {{
+      var expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+      var nextState = !expanded;
+      toggleBtn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+      navDrawer.setAttribute('data-collapsed', nextState ? 'false' : 'true');
+    }});
+  }}{slider_logic}
+}});
 """
 
 
@@ -593,30 +875,46 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             address = claim_val
         elif category == "hours" and hours is None:
             hours = claim_val
-        elif category == "cancellation_policy" and policy is None:
+        elif category in ("cancellation_policy", "policy") and policy is None:
             policy = claim_val
-        elif category == "services" and claim_val not in verified_services:
+        elif (
+            category in ("services", "canine_services", "feline_services")
+            and claim_val not in verified_services
+        ):
             verified_services.append(claim_val)
 
     pricing_needs_review = has_unverified_pricing or not verified_prices
 
     # Resolve hero and gallery image paths relative to website/index.html
+    def _resolve_asset_rel(entry: dict[str, Any]) -> str | None:
+        rel_val = entry.get("relative_path")
+        if isinstance(rel_val, str) and rel_val.strip():
+            cand = project_root / rel_val.strip()
+            if cand.is_file():
+                return f"../{rel_val.strip().lstrip('/')}"
+        fn_val = entry.get("filename")
+        if isinstance(fn_val, str) and fn_val.strip():
+            for sub in ("assets/optimized", "assets/website"):
+                cand = project_root / sub / fn_val.strip()
+                if cand.is_file():
+                    return f"../{sub}/{fn_val.strip()}"
+        return None
+
     hero_obj = selection_data.get("hero_image")
     hero_src: str | None = None
     hero_obj_pos = "50% 30%"
-    if isinstance(hero_obj, dict) and hero_obj.get("relative_path"):
-        cand_file = project_root / str(hero_obj["relative_path"])
-        if cand_file.is_file():
-            hero_src = f"../{hero_obj['relative_path']}"
+    if isinstance(hero_obj, dict):
+        hero_src = _resolve_asset_rel(hero_obj)
+        if hero_src:
             hero_obj_pos = str(hero_obj.get("object_position", "50% 30%"))
 
     gallery_items: list[tuple[str, str]] = []
     for item in selection_data.get("grooming_gallery", []):
-        if isinstance(item, dict) and item.get("relative_path"):
-            cand_file = project_root / str(item["relative_path"])
-            if cand_file.is_file():
+        if isinstance(item, dict):
+            resolved_rel = _resolve_asset_rel(item)
+            if resolved_rel:
                 gallery_items.append(
-                    (f"../{item['relative_path']}", str(item.get("object_position", "50% 30%")))
+                    (resolved_rel, str(item.get("object_position", "50% 30%")))
                 )
 
     before_after = _find_before_after_pair(project_root)
@@ -625,6 +923,66 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     digits = "".join(c for c in phone if c.isdigit() or c == "+") if phone else ""
     cta_href = f"tel:{digits}" if digits else "#contact"
     cta_text = f"Call {html.escape(phone)}" if phone else "Book Grooming Appointment"
+
+    # Extract taxonomy & editorial copy from creative-brief.json
+    raw_tax = brief_data.get("taxonomy")
+    tax_obj: dict[str, Any] = raw_tax if isinstance(raw_tax, dict) else {}
+    is_mobile = bool(tax_obj.get("is_mobile_groomer", False))
+    serves_dogs = bool(tax_obj.get("serves_dogs", True))
+    serves_cats = bool(tax_obj.get("serves_cats", False))
+
+    if is_mobile:
+        archetype = "mobile"
+        eyebrow_text = "Private Driveway Mobile Grooming Studio"
+        trust_pills = (
+            '<span class="ev-trust-pill">100% Self-Contained Heated Hydro-Bath Van</span>'
+            '<span class="ev-trust-pill">1-on-1 Cage-Free Driveway Care</span>'
+            '<span class="ev-trust-pill">Zero Kennel Wait Times</span>'
+        )
+    elif serves_dogs and serves_cats:
+        archetype = "multi-species"
+        eyebrow_text = "Bespoke Canine &amp; Feline Luxury Spa"
+        trust_pills = (
+            '<span class="ev-trust-pill">Segregated Canine &amp; Feline Suites</span>'
+            '<span class="ev-trust-pill">Botanical Coat Conditioning</span>'
+            '<span class="ev-trust-pill">Tranquil Low-Stress Handling</span>'
+        )
+    else:
+        archetype = "salon"
+        eyebrow_text = "Artisanal Pet Grooming &amp; Botanical Spa"
+        trust_pills = (
+            '<span class="ev-trust-pill">Breed-Standard Hand Scissoring</span>'
+            '<span class="ev-trust-pill">Skin-Safe Botanical Hydro-Baths</span>'
+            '<span class="ev-trust-pill">Unhurried 1-on-1 Appointments</span>'
+        )
+
+    raw_headline = str(brief_data.get("editorial_headline") or "").strip()
+    if not raw_headline:
+        raw_headline = business_name
+    elif business_name.lower() not in raw_headline.lower():
+        raw_headline = f"{business_name} — {raw_headline}"
+
+    raw_tagline = str(brief_data.get("editorial_tagline") or "").strip()
+    if not raw_tagline:
+        raw_tagline = "Authentic, compassionate pet grooming tailored to your companion."
+
+    raw_value_prop = str(brief_data.get("editorial_value_prop") or "").strip()
+
+    esc_headline = html.escape(raw_headline)
+    esc_tagline = html.escape(raw_tagline)
+    esc_value_prop = html.escape(raw_value_prop) if raw_value_prop else ""
+
+    # Resolve verified brand logo if present on disk
+    logo_rel_raw = brand_data.get("logo_path")
+    logo_img_html = ""
+    if isinstance(logo_rel_raw, str) and logo_rel_raw.strip():
+        cand_logo = project_root / logo_rel_raw.strip()
+        if cand_logo.is_file():
+            logo_src = f"../{logo_rel_raw.strip().lstrip('/')}"
+            logo_img_html = (
+                f'<img class="ev-brand-logo" src="{html.escape(logo_src)}" '
+                f'alt="{esc_name} Logo">'
+            )
 
     hero_media_html = ""
     if hero_src:
@@ -636,46 +994,100 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             "</div>"
         )
 
-    # Build Services & Pricing section
+    # Archetype-specific feature banner inside Services section
+    archetype_showcase_html = ""
+    if archetype == "mobile":
+        archetype_showcase_html = (
+            '<div class="ev-van-showcase">\n'
+            '  <h3>Self-Contained Mobile Grooming Van — Driveway Convenience</h3>\n'
+            '  <p>Our climate-controlled luxury grooming van arrives directly at your home '
+            'with independent warm freshwater tanks, quiet power, and sanitised tools.</p>\n'
+            '  <ul class="ev-van-features">\n'
+            '    <li>Heated Hydro-Bath &amp; Filtered Water</li>\n'
+            '    <li>1-on-1 Cage-Free Appointment</li>\n'
+            '    <li>Full Local Service Radius Coverage</li>\n'
+            '  </ul>\n'
+            '</div>\n'
+        )
+    elif archetype == "multi-species":
+        archetype_showcase_html = (
+            '<div class="ev-species-showcase">\n'
+            '  <div class="ev-species-card" data-species-tab="dogs">\n'
+            '    <span class="ev-species-badge">Canine Atelier</span>\n'
+            '    <h3 class="ev-card-title">Signature Canine Spa &amp; Styling</h3>\n'
+            '    <p>Breed-standard hand scissoring, warm hydro-massage baths, and gentle '
+            'undercoat de-shedding tailored to dogs of every coat type.</p>\n'
+            '  </div>\n'
+            '  <div class="ev-species-card" data-species-tab="cats">\n'
+            '    <span class="ev-species-badge">Feline Sanctuary</span>\n'
+            '    <h3 class="ev-card-title">Quiet Feline Grooming Suite</h3>\n'
+            '    <p>Dedicated dog-free acoustic suites for plush feline comb-outs, '
+            'sanitary trims, lion cuts, and stress-free claw care.</p>\n'
+            '  </div>\n'
+            '</div>\n'
+        )
+
+    # Build Services & Pricing section (Luxury Editorial Spa Menu)
     if verified_prices:
-        price_cards = "".join(
-            f'<div class="ev-card">'
+        menu_rows = "".join(
+            f'<div class="ev-menu-item ev-card">'
             f'<h3 class="ev-card-title">{html.escape(label)}</h3>'
+            f'<span class="ev-menu-leader" aria-hidden="true"></span>'
             f'<span class="ev-price-badge">{html.escape(price)}</span>'
             f"</div>"
             for label, price in verified_prices
         )
-        pricing_section_html = f'<div class="ev-grid">{price_cards}</div>'
-    else:
-        svc_cards = "".join(
+        svc_rows = "".join(
             f'<div class="ev-card"><h3 class="ev-card-title">{html.escape(svc)}</h3></div>'
             for svc in verified_services
         )
         pricing_section_html = (
-            f"{f'<div class=\"ev-grid\">{svc_cards}</div>' if svc_cards else ''}"
+            f"{archetype_showcase_html}"
+            f'<div class="ev-menu-list">{menu_rows}</div>'
+            f"{f'<div class=\"ev-grid\">{svc_rows}</div>' if svc_rows else ''}"
+        )
+    else:
+        svc_cards = "".join(
+            f'<div class="ev-menu-item ev-card">'
+            f'<h3 class="ev-card-title">{html.escape(svc)}</h3>'
+            f'<span class="ev-menu-leader" aria-hidden="true"></span>'
+            f'<span class="ev-price-badge">Bespoke Care</span>'
+            f"</div>"
+            for svc in verified_services
+        )
+        pricing_section_html = (
+            f"{archetype_showcase_html}"
+            f"{f'<div class=\"ev-menu-list\">{svc_cards}</div>' if svc_cards else ''}"
             '<div class="ev-card" style="margin-top: 1rem;">'
             '<h3 class="ev-card-title">Custom Breed &amp; Coat Pricing</h3>'
             "<p>Contact our grooming team directly to receive a verified quote for your pet.</p>"
-            f'<p style="margin-top: 0.75rem;"><a class="cta btn" href="{html.escape(cta_href)}">'
+            f'<p style="margin-top: 0.85rem;"><a class="cta btn" href="{html.escape(cta_href)}">'
             "Inquire for Pricing / Request Custom Quote</a></p>"
             "</div>"
         )
 
-    # Build Gallery section
+    # Build Gallery section (Editorial Bento Portfolio)
     gallery_html = ""
     if gallery_items:
         imgs_markup = "".join(
-            f'<div class="ev-card">'
+            f'<figure class="ev-bento-item'
+            f'{" ev-bento-item--featured" if idx == 1 else ""} ev-card">'
             f'<img class="ev-gallery-img" src="{html.escape(src)}" '
             f'alt="{esc_name} Grooming Portfolio {idx}" loading="lazy" '
             f'style="object-position: {html.escape(pos)};">'
-            f"</div>"
+            f'<figcaption class="ev-bento-caption">Verified Client Portrait #{idx}</figcaption>'
+            f"</figure>"
             for idx, (src, pos) in enumerate(gallery_items, start=1)
         )
         gallery_html = (
             '<section id="gallery" class="ev-section" data-section="gallery">\n'
-            '  <h2 class="ev-section-title">Verified Grooming Portfolio</h2>\n'
-            f'  <div class="ev-grid">{imgs_markup}</div>\n'
+            '  <div class="ev-section-header">\n'
+            '    <span class="ev-eyebrow">Editorial Lookbook</span>\n'
+            '    <h2 class="ev-section-title">Verified Grooming Portfolio</h2>\n'
+            '    <p class="ev-section-lead">'
+            'Authentic portraits of pets cared for by our stylists.</p>\n'
+            '  </div>\n'
+            f'  <div class="ev-bento-grid">{imgs_markup}</div>\n'
             "</section>"
         )
 
@@ -685,7 +1097,10 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
         b_src, a_src = before_after
         ba_html = (
             '<section id="before-after" class="ev-section" data-section="before-after">\n'
-            '  <h2 class="ev-section-title">Before &amp; After Transformation</h2>\n'
+            '  <div class="ev-section-header">\n'
+            '    <span class="ev-eyebrow">Coat Transformation</span>\n'
+            '    <h2 class="ev-section-title">Before &amp; After Transformation</h2>\n'
+            '  </div>\n'
             '  <div class="ev-ba-slider" data-ev-ba-slider="true">\n'
             '    <div class="ev-card">\n'
             '      <h3 class="ev-card-title">Before Groom</h3>\n'
@@ -708,12 +1123,12 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     contact_cards: list[str] = []
     if phone:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Phone</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Direct Concierge Line</h3>'
             f"<p>{html.escape(phone)}</p></div>"
         )
     if address:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Address</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Studio Location</h3>'
             f"<p>{html.escape(address)}</p></div>"
         )
     if hours:
@@ -723,7 +1138,7 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
         )
     if policy:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Cancellation Policy</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Appointment Policy</h3>'
             f"<p>{html.escape(policy)}</p></div>"
         )
     if not contact_cards:
@@ -734,7 +1149,10 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
 
     contact_html = (
         '<section id="contact" class="ev-section" data-section="contact">\n'
-        '  <h2 class="ev-section-title">Location, Hours &amp; Policies</h2>\n'
+        '  <div class="ev-section-header">\n'
+        '    <span class="ev-eyebrow">Reservations &amp; Concierge</span>\n'
+        '    <h2 class="ev-section-title">Location, Hours &amp; Policies</h2>\n'
+        '  </div>\n'
         '  <div class="ev-grid">\n'
         f'    {"".join(contact_cards)}\n'
         '  </div>\n'
@@ -744,42 +1162,62 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     header_html = (
         '<header class="ev-header" data-section="header">\n'
         '  <nav class="ev-nav" aria-label="Primary Navigation">\n'
-        f'    <a class="ev-brand-title" href="#top">{esc_name}</a>\n'
+        '    <div class="ev-brand-wrap">\n'
+        f'      {logo_img_html}\n'
+        f'      <a class="ev-brand-title" href="#top">{esc_name}</a>\n'
+        '    </div>\n'
         '    <button class="ev-nav-toggle" type="button" aria-expanded="true"\n'
         '      aria-controls="ev-nav-drawer" data-ev-nav-toggle="true">Menu</button>\n'
         '    <ul id="ev-nav-drawer" class="ev-nav-drawer"\n'
         '      data-ev-nav-drawer="true" data-collapsed="false">\n'
-        '      <li><a class="ev-nav-link" href="#services">Services &amp; Pricing</a></li>\n'
-        '      <li><a class="ev-nav-link" href="#gallery">Portfolio</a></li>\n'
-        '      <li><a class="ev-nav-link" href="#contact">Hours &amp; Contact</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#services">Spa Menu</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#gallery">Lookbook</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#contact">Hours &amp; Concierge</a></li>\n'
         '    </ul>\n'
         '  </nav>\n'
         "</header>"
     )
 
+    value_prop_html = (
+        f'    <p class="ev-hero-value">{esc_value_prop}</p>\n' if esc_value_prop else ""
+    )
+
     hero_html = (
-        '<section id="hero" class="ev-hero" data-section="hero">\n'
-        '  <div>\n'
-        f'    <h1 class="ev-hero-title">{esc_name}</h1>\n'
-        '    <p class="ev-hero-subtitle">\n'
-        '      Authentic, compassionate pet grooming tailored to your companion.\n'
-        '    </p>\n'
-        f'    <a class="cta btn" href="{html.escape(cta_href)}">{cta_text}</a>\n'
+        f'<section id="hero" class="ev-hero" data-section="hero" data-archetype="{archetype}">\n'
+        '  <div class="ev-hero-content">\n'
+        f'    <span class="ev-eyebrow">{eyebrow_text}</span>\n'
+        f'    <h1 class="ev-hero-title">{esc_headline}</h1>\n'
+        f'    <p class="ev-hero-subtitle">{esc_tagline}</p>\n'
+        f'{value_prop_html}'
+        '    <div class="ev-hero-actions">\n'
+        f'      <a class="cta btn" href="{html.escape(cta_href)}">{cta_text}</a>\n'
+        '      <a class="ev-btn-secondary" href="#services">Explore Spa Menu</a>\n'
+        '    </div>\n'
+        f'    <div class="ev-trust-strip">{trust_pills}</div>\n'
         '  </div>\n'
         f'  {hero_media_html}\n'
         "</section>"
     )
 
     services_html = (
-        '<section id="services" class="ev-section" data-section="services">\n'
-        '  <h2 class="ev-section-title">Grooming Services &amp; Pricing</h2>\n'
+        '<section id="services" class="ev-section" '
+        f'data-section="services" data-archetype="{archetype}">\n'
+        '  <div class="ev-section-header">\n'
+        '    <span class="ev-eyebrow">Curated Grooming Menu</span>\n'
+        '    <h2 class="ev-section-title">Grooming Services &amp; Pricing</h2>\n'
+        '    <p class="ev-section-lead">'
+        'Every session uses verified coat-safe botanicals and calm, individual attention.</p>\n'
+        '  </div>\n'
         f'  {pricing_section_html}\n'
         "</section>"
     )
 
     footer_html = (
         '<footer class="ev-footer" data-section="footer">\n'
-        f'  <p>&copy; {esc_name}. Verified by EditVista Pet Grooming Website Builder Engine.</p>\n'
+        '  <div class="ev-footer-inner">\n'
+        f'    <p class="ev-footer-brand">{esc_name}</p>\n'
+        f'    <p>&copy; {esc_name}. Verified by EditVista Luxury Pet Grooming Engine.</p>\n'
+        '  </div>\n'
         "</footer>"
     )
 

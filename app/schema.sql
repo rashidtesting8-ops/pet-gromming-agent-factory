@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS job_runs (
 CREATE INDEX IF NOT EXISTS idx_job_runs_project_id ON job_runs(project_id);
 
 CREATE TABLE IF NOT EXISTS asset_provenance (
-    asset_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
     sha256_hash TEXT NOT NULL,
     phash TEXT,
@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS asset_provenance (
     local_path TEXT NOT NULL,
     rights_confirmed_for_preview INTEGER NOT NULL DEFAULT 0
         CHECK (rights_confirmed_for_preview IN (0, 1)),
+    PRIMARY KEY (project_id, asset_id),
     FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
 );
 

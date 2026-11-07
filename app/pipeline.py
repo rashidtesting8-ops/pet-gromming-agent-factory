@@ -184,7 +184,7 @@ def _stage_downloaded_assets_for_curator(
 
         # Mark downloaded first-party site assets as preview-confirmed for local review
         rec = AssetProvenanceRecord(
-            asset_id=f"asset-{idx}-{sha256[:10]}",
+            asset_id=f"{project_id}-asset-{idx}-{sha256[:10]}",
             project_id=project_id,
             sha256_hash=sha256,
             source_url=src_url or "https://local.invalid/asset",
@@ -288,9 +288,15 @@ def run_pipeline(
                     allow_private=allow_private,
                 )
                 crawled_folder = Path(str(collect_summary["project_folder"]))
-                if project_root.exists():
-                    shutil.rmtree(project_root)
-                shutil.move(str(crawled_folder), str(project_root))
+                project_root.mkdir(parents=True, exist_ok=True)
+                for item_path in crawled_folder.iterdir():
+                    if item_path.name in ("delivery", "versions"):
+                        continue
+                    dest = project_root / item_path.name
+                    if item_path.is_dir():
+                        shutil.copytree(item_path, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item_path, dest)
                 shutil.rmtree(staging_collect_dir, ignore_errors=True)
                 _record_job_transition(
                     conn,

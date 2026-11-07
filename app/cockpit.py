@@ -402,6 +402,11 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
         content_type = mime or "application/octet-stream"
         if target.suffix == ".html":
             content_type = "text/html; charset=utf-8"
+            html_str = target.read_text(encoding="utf-8")
+            html_str = html_str.replace(
+                'src="../assets/', f'src="/assets/{project_id}/assets/'
+            )
+            return Response(content=html_str.encode("utf-8"), media_type=content_type)
         return Response(content=target.read_bytes(), media_type=content_type)
 
     @app.get("/screenshots/{project_id}/{filename}")
