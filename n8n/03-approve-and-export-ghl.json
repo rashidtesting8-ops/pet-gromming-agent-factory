@@ -1,0 +1,269 @@
+{
+  "name": "03 - Executive Release Sign-Off & Scoped GHL Exporter",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pet-grooming-approve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a11d8fc8-3e71-40a9-9cf0-081a7d14aa01",
+      "name": "Executive Sign-Off Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        180,
+        300
+      ],
+      "webhookId": "b22d63e5-5df8-42ea-a2f4-1d7726de6e03"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "project_id",
+              "value": "={{ ($json.body && $json.body.project_id) ? String($json.body.project_id).trim() : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "p2",
+              "name": "version",
+              "value": "={{ ($json.body && $json.body.version) ? String($json.body.version).trim() : 'v1' }}",
+              "type": "string"
+            },
+            {
+              "id": "p3",
+              "name": "operator",
+              "value": "={{ ($json.body && $json.body.operator) ? String($json.body.operator).trim() : 'Executive Operator' }}",
+              "type": "string"
+            },
+            {
+              "id": "p4",
+              "name": "notes",
+              "value": "={{ ($json.body && $json.body.notes) ? String($json.body.notes).trim() : 'Approved via n8n Executive Sign-Off' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c31e8fc8-3e71-40a9-9cf0-081a7d140302",
+      "name": "Normalize Sign-Off Credentials",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        410,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v1",
+              "leftValue": "={{ $json.project_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c32e8fc8-3e71-40a9-9cf0-081a7d140303",
+      "name": "Validate Sign-Off Authority Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://collector:8787/pipeline/' + $json.project_id + '/approve' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ version: $json.version, operator: $json.operator, notes: $json.notes }) }}",
+        "options": {}
+      },
+      "id": "c33246fa-184e-49dd-bf18-09464659e003",
+      "name": "Freeze Immutable Release & Compile GHL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        910,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m1",
+              "name": "release_status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "m2",
+              "name": "project_id",
+              "value": "={{ $json.project_id }}",
+              "type": "string"
+            },
+            {
+              "id": "m3",
+              "name": "release_version",
+              "value": "={{ $json.version }}",
+              "type": "string"
+            },
+            {
+              "id": "m4",
+              "name": "cryptographic_tree_sha256",
+              "value": "={{ $json.release_tree_sha256 }}",
+              "type": "string"
+            },
+            {
+              "id": "m5",
+              "name": "scoped_ghl_embed_path",
+              "value": "={{ $json.ghl_snippet_path }}",
+              "type": "string"
+            },
+            {
+              "id": "m6",
+              "name": "standalone_homepage_path",
+              "value": "={{ $json.approved_homepage_path }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c34e8fc8-3e71-40a9-9cf0-081a7d140305",
+      "name": "Assemble GHL Deployment Bundle",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "d4437ad1-5001-4f95-979b-cb449f505003",
+      "name": "Return Signed Deliverable Manifest",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1410,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ release_status: 'blocked', error: 'project_id is required to authorize immutable release freeze' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "c35e8fc8-3e71-40a9-9cf0-081a7d140307",
+      "name": "Block Unauthorized Release Export",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        910,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Executive Sign-Off Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sign-Off Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Sign-Off Credentials": {
+      "main": [
+        [
+          {
+            "node": "Validate Sign-Off Authority Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Sign-Off Authority Gate": {
+      "main": [
+        [
+          {
+            "node": "Freeze Immutable Release & Compile GHL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Block Unauthorized Release Export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freeze Immutable Release & Compile GHL": {
+      "main": [
+        [
+          {
+            "node": "Assemble GHL Deployment Bundle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble GHL Deployment Bundle": {
+      "main": [
+        [
+          {
+            "node": "Return Signed Deliverable Manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

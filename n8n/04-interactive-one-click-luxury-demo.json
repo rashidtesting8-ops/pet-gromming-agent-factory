@@ -1,0 +1,274 @@
+{
+  "name": "04 - One-Click Interactive Luxury Website Studio Demo",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "101d8fc8-3e71-40a9-9cf0-081a7d140401",
+      "name": "One-Click Studio Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "url",
+              "value": "https://puppalacesalon.com",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "business_name",
+              "value": "Pup Palace Luxury Salon",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "business_id",
+              "value": "pup-palace-salon",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "resume",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "102d8fc8-3e71-40a9-9cf0-081a7d140402",
+      "name": "Configure Client Brand Brief",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://collector:8787/pipeline/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ url: $json.url, business_name: $json.business_name, business_id: $json.business_id, resume: $json.resume }) }}",
+        "options": {}
+      },
+      "id": "103d8fc8-3e71-40a9-9cf0-081a7d140403",
+      "name": "Dispatch 9-Stage Website Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "104d8fc8-3e71-40a9-9cf0-081a7d140404",
+      "name": "Await Engine Synthesis",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        300
+      ],
+      "webhookId": "w04d63e5-5df8-42ea-a2f4-1d7726de0404"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://collector:8787/jobs/' + $('Dispatch 9-Stage Website Engine').item.json.job_id }}",
+        "options": {}
+      },
+      "id": "105d8fc8-3e71-40a9-9cf0-081a7d140405",
+      "name": "Query Engine Build Telemetry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "106d8fc8-3e71-40a9-9cf0-081a7d140406",
+      "name": "Verify Build Completion Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1",
+              "name": "client_brand",
+              "value": "={{ $json.result ? $json.result.business_name : 'Pup Palace Luxury Salon' }}",
+              "type": "string"
+            },
+            {
+              "id": "d2",
+              "name": "pipeline_stage",
+              "value": "={{ $json.result ? $json.result.pipeline_status : $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "d3",
+              "name": "five_viewport_qa_passed",
+              "value": "={{ $json.result ? Boolean($json.result.qa_passed) : false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d4",
+              "name": "operator_cockpit_url",
+              "value": "={{ $json.result ? $json.result.cockpit_review_url : 'http://127.0.0.1:8888/review/pup-palace-salon' }}",
+              "type": "string"
+            },
+            {
+              "id": "d5",
+              "name": "deliverable_workspace",
+              "value": "={{ $json.result ? $json.result.project_folder : '/data/projects/pup-palace-salon' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "107d8fc8-3e71-40a9-9cf0-081a7d140407",
+      "name": "Compile Executive Review Dossier",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1620,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "One-Click Studio Trigger": {
+      "main": [
+        [
+          {
+            "node": "Configure Client Brand Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure Client Brand Brief": {
+      "main": [
+        [
+          {
+            "node": "Dispatch 9-Stage Website Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dispatch 9-Stage Website Engine": {
+      "main": [
+        [
+          {
+            "node": "Await Engine Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Await Engine Synthesis": {
+      "main": [
+        [
+          {
+            "node": "Query Engine Build Telemetry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Engine Build Telemetry": {
+      "main": [
+        [
+          {
+            "node": "Verify Build Completion Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Build Completion Gate": {
+      "main": [
+        [
+          {
+            "node": "Compile Executive Review Dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Await Engine Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
+

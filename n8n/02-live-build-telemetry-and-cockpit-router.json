@@ -1,0 +1,242 @@
+{
+  "name": "02 - Live Build Telemetry & Cockpit Review Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "pet-grooming-research-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "42085cec-13d2-450f-8c26-abed90bdd406",
+      "name": "Build Telemetry Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        180,
+        300
+      ],
+      "webhookId": "e90256aa-c893-47ac-9535-0bf3e3b24f5d"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "q1",
+              "name": "tracking_id",
+              "value": "={{ ($json.query && ($json.query.buildId || $json.query.jobId)) ? String($json.query.buildId || $json.query.jobId).trim() : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b21e8fc8-3e71-40a9-9cf0-081a7d140202",
+      "name": "Extract Build Tracking Token",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        410,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://collector:8787/jobs/' + $json.tracking_id }}",
+        "options": {}
+      },
+      "id": "9426df8b-1bb9-4590-8b5e-5f89491d7783",
+      "name": "Query Engine Build Telemetry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b22e8fc8-3e71-40a9-9cf0-081a7d140204",
+      "name": "Evaluate Build Completion Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        890,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "telemetry_status",
+              "value": "ready_for_review",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "project_id",
+              "value": "={{ $json.result ? $json.result.project_id : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "pipeline_stage",
+              "value": "={{ $json.result ? $json.result.pipeline_status : 'done' }}",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "five_viewport_qa_passed",
+              "value": "={{ $json.result ? Boolean($json.result.qa_passed) : true }}",
+              "type": "boolean"
+            },
+            {
+              "id": "r5",
+              "name": "operator_cockpit_url",
+              "value": "={{ $json.result ? $json.result.cockpit_review_url : 'http://127.0.0.1:8888' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b23e8fc8-3e71-40a9-9cf0-081a7d140205",
+      "name": "Assemble Executive Cockpit Dossier",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1150,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "2bec076e-2caf-452c-814b-e421a3b2cb87",
+      "name": "Return Cockpit Review Dossier",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1400,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ telemetry_status: $json.status || 'in_progress', build_tracking_id: $json.job_id, error: $json.error || null, message: '9-Stage Luxury Website synthesis is currently in progress' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "b24e8fc8-3e71-40a9-9cf0-081a7d140207",
+      "name": "Return Live Synthesis Progress",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1150,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Build Telemetry Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Build Tracking Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Build Tracking Token": {
+      "main": [
+        [
+          {
+            "node": "Query Engine Build Telemetry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Engine Build Telemetry": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Build Completion Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Build Completion Gate": {
+      "main": [
+        [
+          {
+            "node": "Assemble Executive Cockpit Dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Live Synthesis Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Executive Cockpit Dossier": {
+      "main": [
+        [
+          {
+            "node": "Return Cockpit Review Dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

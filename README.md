@@ -265,8 +265,10 @@ pet-gromming-agent-factory/
 ├── examples/
 │   └── BUSINESS_INPUT_EXAMPLE.json          # Reference JSON schema for business intake workflows
 ├── n8n/
-│   ├── 01-submit-asset-research.json        # Intake webhook workflow for submitting collection jobs
-│   └── 02-check-asset-job.json              # Polling workflow for monitoring job execution status
+│   ├── 01-client-intake-and-website-build.json      # 7-node client intake & 9-stage build trigger workflow
+│   ├── 02-live-build-telemetry-and-cockpit-router.json # 7-node build telemetry & Cockpit review router workflow
+│   ├── 03-approve-and-export-ghl.json               # 7-node executive release sign-off & GHL export workflow
+│   └── 04-interactive-one-click-luxury-demo.json    # 7-node one-click interactive studio demo workflow
 ├── src/engine/
 │   ├── __init__.py
 │   ├── contracts/

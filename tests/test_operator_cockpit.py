@@ -388,3 +388,48 @@ def test_cockpit_surgical_revision_api(tmp_path: Path) -> None:
         assert after_hashes["header"] == before_hashes["header"]
         assert after_hashes["hero"] == before_hashes["hero"]
         assert after_hashes["footer"] == before_hashes["footer"]
+
+
+def test_cockpit_ghl_export_and_live_funnel_simulator(tmp_path: Path) -> None:
+    projects_dir = tmp_path / "projects"
+    projects_dir.mkdir(parents=True)
+    project_root = _scaffold_cockpit_project(projects_dir, "ghl-demo", rights_confirmed=True)
+
+    with _ephemeral_cockpit_server(projects_dir) as base_url:
+        # 1. Approve project first so delivery/ is frozen
+        appr = requests.post(
+            f"{base_url}/api/projects/ghl-demo/approve",
+            json={"operator_name": "GHL Lead", "notes": "Freeze for GHL export"},
+            timeout=3.0,
+        )
+        assert appr.status_code == 200
+        manifest_before = (project_root / "delivery/release-manifest.json").read_bytes()
+
+        # 2. Fetch scoped GHL export via Cockpit API
+        exp_resp = requests.get(
+            f"{base_url}/api/projects/ghl-demo/ghl-export",
+            timeout=3.0,
+        )
+        assert exp_resp.status_code == 200
+        exp_data = exp_resp.json()
+        assert exp_data["project_id"] == "ghl-demo"
+        assert exp_data["root_id"] == "ghl-ev-engine-root-ghl-demo"
+        assert exp_data["simulation"]["is_valid"] is True
+        assert exp_data["simulation"]["unscoped_css_count"] == 0
+        assert exp_data["simulation"]["global_leak_detected"] is False
+        assert exp_data["simulation"]["asset_urls_absolute"] is True
+        assert f"{base_url}/assets/ghl-demo/assets/optimized/dog.png" in exp_data["ghl_html"]
+
+        # Ensure immutable delivery/ manifest was not modified
+        assert (project_root / "delivery/release-manifest.json").read_bytes() == manifest_before
+
+        # 3. Fetch live GHL Funnel Simulator page
+        sim_resp = requests.get(
+            f"{base_url}/ghl-preview/ghl-demo",
+            timeout=3.0,
+        )
+        assert sim_resp.status_code == 200
+        assert "ghl-ev-engine-root-ghl-demo" in sim_resp.text
+        assert "GoHighLevel Funnel Host Simulator" in sim_resp.text
+        assert f"{base_url}/assets/ghl-demo/assets/optimized/dog.png" in sim_resp.text
+

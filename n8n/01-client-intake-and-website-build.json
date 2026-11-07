@@ -1,0 +1,269 @@
+{
+  "name": "01 - Client Intake & Luxury Website Build Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pet-grooming-research",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f3de8fc8-3e71-40a9-9cf0-081a7d14ff10",
+      "name": "Client Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        180,
+        300
+      ],
+      "webhookId": "cd3d63e5-5df8-42ea-a2f4-1d7726de6e43"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "url",
+              "value": "={{ ($json.body && $json.body.url) ? String($json.body.url).trim() : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "business_name",
+              "value": "={{ ($json.body && $json.body.business_name) ? String($json.body.business_name).trim() : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "business_id",
+              "value": "={{ ($json.body && $json.body.business_id) ? String($json.body.business_id).trim() : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "full_pipeline",
+              "value": "={{ ($json.body && $json.body.full_pipeline === false) ? false : true }}",
+              "type": "boolean"
+            },
+            {
+              "id": "s5",
+              "name": "resume",
+              "value": "={{ Boolean($json.body && $json.body.resume) }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a11e8fc8-3e71-40a9-9cf0-081a7d140102",
+      "name": "Normalize Client Intake Brief",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        410,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.url }}",
+              "rightValue": "http",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a12e8fc8-3e71-40a9-9cf0-081a7d140103",
+      "name": "Validate Client URL Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://collector:8787/jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ url: $json.url, business_name: $json.business_name || null, business_id: $json.business_id || null, full_pipeline: $json.full_pipeline, resume: $json.resume, max_pages: 25, max_media: 80 }) }}",
+        "options": {}
+      },
+      "id": "895246fa-184e-49dd-bf18-09464659e08e",
+      "name": "Launch 9-Stage Luxury Website Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        910,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "intake_status",
+              "value": "accepted",
+              "type": "string"
+            },
+            {
+              "id": "t2",
+              "name": "build_tracking_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "t3",
+              "name": "engine_state",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "t4",
+              "name": "telemetry_poll_endpoint",
+              "value": "={{ 'http://127.0.0.1:5678/webhook/pet-grooming-research-status?buildId=' + $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "t5",
+              "name": "operator_cockpit_dashboard",
+              "value": "http://127.0.0.1:8888",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a13e8fc8-3e71-40a9-9cf0-081a7d140105",
+      "name": "Compile Intake Tracking Dossier",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "80137ad1-5001-4f95-979b-cb449f50503c",
+      "name": "Return Build Tracking Token",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1410,
+        210
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ intake_status: 'rejected', error: 'A valid http/https client website URL is required in body.url' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "a14e8fc8-3e71-40a9-9cf0-081a7d140107",
+      "name": "Reject Invalid Intake Payload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        910,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Client Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Client Intake Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Client Intake Brief": {
+      "main": [
+        [
+          {
+            "node": "Validate Client URL Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Client URL Gate": {
+      "main": [
+        [
+          {
+            "node": "Launch 9-Stage Luxury Website Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid Intake Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch 9-Stage Luxury Website Engine": {
+      "main": [
+        [
+          {
+            "node": "Compile Intake Tracking Dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Intake Tracking Dossier": {
+      "main": [
+        [
+          {
+            "node": "Return Build Tracking Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

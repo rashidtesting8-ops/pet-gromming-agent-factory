@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,10 @@ from app.approval import (
 )
 from app.db import connect_db, init_db, list_projects
 from app.generator import revise_section
+from app.ghl_exporter import (
+    export_ghl_snippet_from_html,
+    validate_ghl_embed_simulation,
+)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -382,6 +386,108 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
             }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _compile_ghl_bundle(
+        project_id: str,
+        root: Path,
+        request: Request,
+        cdn_base_url: str | None = None,
+    ) -> dict[str, Any]:
+        source_html_path: Path | None = None
+        source_stage = "candidate"
+        for candidate_path, stage_label in (
+            (root / "delivery" / "approved-homepage.html", "approved_delivery"),
+            (root / "release-candidate" / "standalone.html", "release_candidate"),
+            (root / "website" / "index.html", "website_draft"),
+        ):
+            if candidate_path.is_file():
+                source_html_path = candidate_path
+                source_stage = stage_label
+                break
+
+        if source_html_path is None:
+            raise HTTPException(status_code=404, detail="No compiled HTML found for GHL export")
+
+        base_origin = str(request.base_url).rstrip("/")
+        effective_cdn = (cdn_base_url or f"{base_origin}/assets/{project_id}").strip().rstrip("/")
+        raw_html = source_html_path.read_text(encoding="utf-8")
+        normalized_html = raw_html.replace('src="../assets/', 'src="assets/')
+        ghl_html = export_ghl_snippet_from_html(
+            normalized_html,
+            business_id=project_id,
+            cdn_base_url=effective_cdn,
+        )
+        root_id = f"ghl-ev-engine-root-{project_id}"
+
+        host_page_html = (
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"utf-8\">\n"
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            "  <title>GoHighLevel Funnel Host Simulator &mdash; "
+            f"{html.escape(project_id)}</title>\n"
+            "  <style>\n"
+            "    /* Hostile GoHighLevel Funnel Builder Global Reset */\n"
+            "    body { margin: 0; background: #0f172a; font-family: system-ui, sans-serif; }\n"
+            "    .ghl-sim-bar {\n"
+            "      background: #0f172a; color: #f8fafc; padding: 10px 20px;\n"
+            "      display: flex; justify-content: space-between; align-items: center;\n"
+            "      border-bottom: 2px solid #22c55e; font-size: 13px;\n"
+            "    }\n"
+            "    .ghl-sim-pill {\n"
+            "      background: #14532d; color: #86efac; padding: 4px 10px;\n"
+            "      border-radius: 999px; font-weight: 600; font-size: 12px;\n"
+            "    }\n"
+            "  </style>\n"
+            "</head>\n"
+            "<body>\n"
+            "  <div class=\"ghl-sim-bar\">\n"
+            "    <div><strong>GoHighLevel Funnel Host Simulator</strong> "
+            f"&bull; Root Container: <code>#{html.escape(root_id)}</code></div>\n"
+            "    <div class=\"ghl-sim-pill\">Scoped CSS + IIFE JS Isolation Verified</div>\n"
+            "  </div>\n"
+            f"{ghl_html}\n"
+            "</body>\n"
+            "</html>"
+        )
+        sim_report = validate_ghl_embed_simulation(ghl_html, root_id)
+        return {
+            "project_id": project_id,
+            "root_id": root_id,
+            "source_stage": source_stage,
+            "cdn_base_url": effective_cdn,
+            "ghl_html": ghl_html,
+            "host_page_html": host_page_html,
+            "simulation": sim_report,
+        }
+
+    @app.get("/api/projects/{project_id}/ghl-export")
+    def ghl_export_endpoint(
+        project_id: str,
+        request: Request,
+        cdn_base_url: str | None = None,
+    ) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        bundle = _compile_ghl_bundle(project_id, root, request, cdn_base_url=cdn_base_url)
+        return {
+            "project_id": bundle["project_id"],
+            "root_id": bundle["root_id"],
+            "source_stage": bundle["source_stage"],
+            "cdn_base_url": bundle["cdn_base_url"],
+            "ghl_html": bundle["ghl_html"],
+            "simulation": bundle["simulation"],
+        }
+
+    @app.get("/ghl-preview/{project_id}", response_class=HTMLResponse)
+    def ghl_preview_page(
+        project_id: str,
+        request: Request,
+        cdn_base_url: str | None = None,
+    ) -> HTMLResponse:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        bundle = _compile_ghl_bundle(project_id, root, request, cdn_base_url=cdn_base_url)
+        return HTMLResponse(content=bundle["host_page_html"])
 
     @app.get("/preview/{project_id}/{subpath:path}")
     def serve_preview(project_id: str, subpath: str) -> Response:

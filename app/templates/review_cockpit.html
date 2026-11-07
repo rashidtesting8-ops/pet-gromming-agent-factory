@@ -119,6 +119,25 @@
         <div class="tabs-bar">{{TABS_HTML}}</div>
         {{PANES_HTML}}
       </div>
+
+      <div class="panel">
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>GoHighLevel (GHL) Scoped Export &amp; Funnel Simulator</span>
+          <a href="/ghl-preview/{{PID}}" target="_blank" rel="noopener" style="color:#0284c7;font-size:13px;text-decoration:none;font-weight:700;">Open Live GHL Funnel Simulator &rarr;</a>
+        </div>
+        <div class="revision-form">
+          <p style="margin:0 0 8px;font-size:12px;color:#475569;">
+            Scoped under <code>#ghl-ev-engine-root-{{PID}}</code> with strict IIFE JavaScript isolation and absolute asset URL rewriting.
+          </p>
+          <input id="ghl-cdn-input" type="text" placeholder="Optional CDN Base URL (defaults to local Cockpit asset server)" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;" />
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <button class="btn-revise" type="button" onclick="loadGhlExport()">Generate &amp; Verify GHL Code</button>
+            <button class="btn-approve" type="button" onclick="copyGhlSnippet()" style="background:#0284c7;">Copy GHL Custom HTML</button>
+          </div>
+          <div id="ghl-audit-badges" style="font-size:12px;margin-bottom:8px;color:#166534;font-weight:600;"></div>
+          <textarea id="ghl-code-output" readonly placeholder="Click 'Generate & Verify GHL Code' to inspect the scoped GoHighLevel Custom HTML/CSS/JS snippet..." style="height:140px;font-family:monospace;font-size:12px;"></textarea>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -192,6 +211,39 @@
         }
       } catch (err) {
         alert('Error: ' + err.message);
+      }
+    }
+
+    async function loadGhlExport() {
+      const cdnInput = document.getElementById('ghl-cdn-input').value.trim();
+      const qs = cdnInput ? ('?cdn_base_url=' + encodeURIComponent(cdnInput)) : '';
+      try {
+        const res = await fetch('/api/projects/{{PID}}/ghl-export' + qs);
+        const data = await res.json();
+        if (!res.ok) {
+          alert('GHL Export Error: ' + (data.detail || 'Failed'));
+          return;
+        }
+        document.getElementById('ghl-code-output').value = data.ghl_html;
+        const sim = data.simulation || {};
+        document.getElementById('ghl-audit-badges').textContent =
+          'Audit: is_valid=' + sim.is_valid +
+          ' | unscoped_css=' + sim.unscoped_css_count +
+          ' | js_leak=' + sim.global_leak_detected +
+          ' | absolute_assets=' + sim.asset_urls_absolute;
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    }
+
+    async function copyGhlSnippet() {
+      const out = document.getElementById('ghl-code-output');
+      if (!out.value.trim()) {
+        await loadGhlExport();
+      }
+      if (out.value.trim()) {
+        await navigator.clipboard.writeText(out.value);
+        alert('Scoped GoHighLevel Custom HTML copied to clipboard!');
       }
     }
   </script>
