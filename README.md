@@ -5,9 +5,9 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 138 Passing](https://img.shields.io/badge/tests-138%20passing-brightgreen.svg)
+![Tests: 141 Passing](https://img.shields.io/badge/tests-141%20passing-brightgreen.svg)
 
-**An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, human-in-the-loop operator cockpit review, and immutable release packaging for bespoke pet grooming websites.**
+**An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
 ---
 
@@ -22,14 +22,15 @@
 7. [Installation & Setup](#7-installation--setup)
 8. [Environment Configuration](#8-environment-configuration)
 9. [Usage & CLI Reference](#9-usage--cli-reference)
-10. [Operator Cockpit & Local Worker API](#10-operator-cockpit--local-worker-api)
-11. [Testing & Quality Assurance](#11-testing--quality-assurance)
-12. [Deployment & Production Considerations](#12-deployment--production-considerations)
-13. [Security Architecture](#13-security-architecture)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Milestones & Roadmap](#15-milestones--roadmap)
-16. [Contributing & Definition of Done](#16-contributing--definition-of-done)
-17. [License & Acknowledgments](#17-license--acknowledgments)
+10. [Enterprise n8n Workflow Automation](#10-enterprise-n8n-workflow-automation)
+11. [Operator Cockpit & Local Worker API](#11-operator-cockpit--local-worker-api)
+12. [Testing & Quality Assurance](#12-testing--quality-assurance)
+13. [Deployment & Container Orchestration](#13-deployment--container-orchestration)
+14. [Security Architecture](#14-security-architecture)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Milestones & Roadmap](#16-milestones--roadmap)
+17. [Contributing & Definition of Done](#17-contributing--definition-of-done)
+18. [License & Acknowledgments](#18-license--acknowledgments)
 
 ---
 
@@ -76,12 +77,13 @@ Traditional AI site generators suffer from critical production failure modes:
 | **5-Viewport Playwright QA Engine** | `app/qa_engine.py`, `src/engine/local_preview.py` | Hosts an ephemeral HTTP server and runs automated audits across `1440px`, `1024px`, `768px`, `390px`, and `360px` viewports for horizontal overflow, 404 assets, console exceptions, broken images (`naturalWidth === 0`), and WCAG AA contrast. |
 | **Visual Critic & Feedback Loop** | `app/visual_critic.py` | Evaluates layout and typography against pet grooming design rules (avoiding repetitive `#F5F5DC` cards, clipped hero headers, or awkward spacing), logging actionable defect items to `qa/visual-critique.json` (hard cap of 3 cycles). |
 | **Hardened Multimodal LLM Adapter** | `src/engine/llm/adapter.py` | Multi-provider adapter (Anthropic, OpenAI, Gemini, Fake) with `provider.default_model` resolution, SHA-256 disk caching, SQLite-persisted project budget state, upfront cost estimation (`1024`-token reserve when `max_tokens` is unset), call and token caps, retry tracking, path traversal defense, and automatic credential redaction. |
-| **Operator Review Cockpit Web UI** | `app/cockpit.py` | Local operator review cockpit (`127.0.0.1:8787` or custom port) with sandboxed iframe previewing (`sandbox="allow-scripts"`), 5-viewport screenshot inspection, claim provenance audit, interactive asset rights confirmation, surgical section revision, and one-click release approval. |
+| **Operator Review Cockpit Web UI** | `app/cockpit.py` | Local operator review cockpit (`127.0.0.1:8888` or `:8787`) with sandboxed iframe previewing (`sandbox="allow-scripts"`), 5-viewport screenshot inspection, claim provenance audit, interactive asset rights confirmation, surgical section revision, one-click release approval, scoped GoHighLevel (GHL) snippet generation, and live Funnel Host Simulator. |
 | **Human Approval & Release Candidate Gate** | `app/approval.py` | Stages candidate deliverables to `release-candidate/`; `approve` checks QA candidate SHA-256 matching, audits referenced HTML assets for confirmed rights, freezes read-only HTML and referenced `assets/` in `delivery/` and `versions/vN/`, and records `checksums` + `asset_signatures` in `release-manifest.json`. |
-| **Release Verification & Scoped GHL Export** | `app/approval.py`, `src/engine/exporter.py`, `app/ghl_exporter.py` | Verifies delivery HTML and referenced project assets against `release-manifest.json` (`verify` CLI); packages verified releases into `projects/_archives/<id>-approved.zip`; formats GHL snippets scoped under `#ghl-ev-engine-root-[business_id]` with CDN URL rewriting and multi-instance `.ev-ghl-scope` JS isolation. |
+| **Release Verification & Scoped GHL Export** | `app/approval.py`, `src/engine/exporter.py`, `app/ghl_exporter.py` | Verifies delivery HTML and referenced project assets against `release-manifest.json` (`verify` CLI); packages verified releases into `projects/_archives/<id>-approved.zip`; formats GHL snippets scoped under `#ghl-ev-engine-root-[business_id]` with absolute CDN/Cockpit asset URL rewriting, strict IIFE JS encapsulation with `MutationObserver`, and simulation verification (`is_valid=True`, `unscoped_css_count=0`, `global_leak_detected=False`). |
 | **Approval-Gated Safe Storage Pruning** | `app/cleanup.py`, `src/engine/cleanup.py` | Refuses pruning unless verified approved release archive exists and matches manifest; permanently protects `delivery/`, version snapshots, and `retained-assets.json`. |
 | **5-Business Acceptance Pilot** | `app/pilot.py` | End-to-end benchmark suite validating 5 pet grooming archetypes (deterministic synthetic fixtures by default, or live HTTP/Playwright via `--live`) with zero-fabrication checks and structured audit reports (`projects/_pilot/pilot-report.json` and `.md`). |
-| **Local FastAPI Worker Service** | `src/engine/service.py` | Bounded asynchronous task runner (`127.0.0.1:8787`) backed by SQLite WAL mode and concurrency semaphores (`4` queue slots, `2` execution threads) for self-hosted n8n workflow integration. |
+| **Local Worker & Pipeline Service** | `src/engine/service.py`, `app/service.py` | Bounded asynchronous task runner (`127.0.0.1:8787`) backed by SQLite WAL mode and concurrency semaphores (`4` queue slots, `2` execution threads) exposing `POST /jobs`, `POST /pipeline/run`, and `POST /pipeline/{project_id}/approve` with container-safe QA fallback. |
+| **Enterprise n8n Workflow Automation** | `n8n/*.json` | 4 production 7-node branching workflows with `Set` payload normalization, conditional `IF` completion gates, error/progress telemetry branches, and zero informal naming for end-to-end client intake, status tracking, release sign-off, and one-click demo studio execution. |
 
 ---
 
@@ -237,9 +239,9 @@ flowchart LR
 | **Browser Engine** | Playwright Chromium | `==1.55.0` pinned | Dynamic gallery extraction and 5-viewport automated visual QA runner. |
 | **Subprocess Ingestion** | `gallery-dl` | `==1.30.0` pinned | Subprocess-isolated media metadata extraction from public profiles. |
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
-| **Operator Cockpit & API** | FastAPI, Uvicorn | `fastapi >= 0.115`, `uvicorn >= 0.32` | Interactive review cockpit UI (`127.0.0.1:8787`) and async job worker. |
-| **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:latest` | Optional webhook-driven intake and status polling via Docker Compose. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 138-test suite across 24 modules. |
+| **Operator Cockpit & API** | FastAPI, Uvicorn | `fastapi >= 0.115`, `uvicorn >= 0.32` | Interactive review cockpit UI (`127.0.0.1:8888`), scoped GHL exporter, and async job worker. |
+| **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:latest` | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 141-test suite across 25 modules. |
 
 ---
 
@@ -311,7 +313,7 @@ pet-gromming-agent-factory/
     ├── test_approval_archival.py            # 7 Approval gate, stale QA, asset rights audit & verify tests
     ├── test_audit_invariants.py             # 7 Cross-module invariants: rerun safety, asset tamper, unified reviser, DB PK
     ├── test_llm_pipeline_integration.py     # 5 Real LLM provider pipeline integration & fallback tests
-    ├── test_operator_cockpit.py             # 5 Operator review cockpit UI, viewports, audit & approval tests
+    ├── test_operator_cockpit.py             # 6 Operator review cockpit UI, viewports, audit, GHL export & simulator tests
     ├── test_section_generator_and_reviser.py# 5 Section output, index rebuild, validation & Playwright pixel tests
     ├── test_collector.py                    # 5 Local crawl, snapshot hashing, sanitization & prompt injection tests
     ├── test_pilot_milestone5.py             # 4 Five-business acceptance pilot runner & audit report tests
@@ -326,6 +328,7 @@ pet-gromming-agent-factory/
     ├── test_import_meta_export.py           # 3 Meta export parsing, zip-bomb streaming caps & path traversal tests
     ├── test_local_preview.py                # 3 Placeholder CTA link detection, mobile menu & reduced-motion tests
     ├── test_qa_engine.py                    # 3 WCAG AA contrast math, 5-viewport inspection & teardown tests
+    ├── test_n8n_service_pipeline.py         # 2 Worker service endpoints, pipeline run/approve & n8n 7-node schema tests
     ├── test_pipeline_e2e.py                 # 2 End-to-end HTTP pipeline runs with unverified pricing fallback tests
     └── test_pipeline_lifecycle.py           # 2 Crash recovery (--resume), approval pause & CLI subcommand tests
 ```
@@ -557,39 +560,62 @@ print(f"Tokens spent: {response.total_tokens}, Cached: {response.cached}")
 
 ---
 
-## 10. Operator Cockpit & Local Worker API
+## 10. Enterprise n8n Workflow Automation
 
-### 10.1 Operator Cockpit Endpoints (`app/cockpit.py`)
+The repository includes four production-grade, 7-node branching workflows (`n8n/`) engineered to orchestrate the pipeline via self-hosted n8n (`http://127.0.0.1:5678`) connected to the Docker collector service (`http://collector:8787`):
 
-The Operator Cockpit provides HTML review routes and RESTful JSON endpoints for human-in-the-loop operations:
+| Workflow File | Enterprise Workflow Name | Trigger Type | Key Nodes & Topology |
+| :--- | :--- | :--- | :--- |
+| [`01-client-intake-and-website-build.json`](n8n/01-client-intake-and-website-build.json) | `01 - Client Intake & Luxury Website Build Trigger` | Webhook (`POST /webhook/intake`) | Webhook $\rightarrow$ Set Intake Payload $\rightarrow$ HTTP Engine Launch (`POST /pipeline/run`) $\rightarrow$ IF Success Gate $\rightarrow$ Set Job Token $\rightarrow$ Webhook Success Response (or Set Error + Failure Response). |
+| [`02-live-build-telemetry-and-cockpit-router.json`](n8n/02-live-build-telemetry-and-cockpit-router.json) | `02 - Live Build Telemetry & Cockpit Review Router` | Webhook (`GET /webhook/status`) | Webhook $\rightarrow$ Extract Job ID $\rightarrow$ Query Engine Build Telemetry (`GET /jobs/{id}`) $\rightarrow$ IF Completion Gate $\rightarrow$ Set Cockpit Review Dossier $\rightarrow$ Respond with Cockpit Link (or Set Progress Telemetry). |
+| [`03-approve-and-export-ghl.json`](n8n/03-approve-and-export-ghl.json) | `03 - Executive Release Sign-Off & Scoped GHL Exporter` | Webhook (`POST /webhook/approve`) | Webhook $\rightarrow$ Set Approval Metadata $\rightarrow$ HTTP Sign-Off & Freeze (`POST /pipeline/{id}/approve`) $\rightarrow$ IF Release Valid Gate $\rightarrow$ Set Signed Manifest Dossier $\rightarrow$ Webhook Approved Response (or Set Gate Error). |
+| [`04-interactive-one-click-luxury-demo.json`](n8n/04-interactive-one-click-luxury-demo.json) | `04 - One-Click Interactive Luxury Website Studio Demo` | Manual (`On clicking 'Execute'`) | One-Click Trigger $\rightarrow$ Configure Client Brand Brief $\rightarrow$ Dispatch 9-Stage Engine $\rightarrow$ Await Engine Synthesis (5s delay) $\rightarrow$ Query Build Telemetry $\rightarrow$ Verify Completion Gate (polling loop) $\rightarrow$ Compile Executive Review Dossier with Cockpit URL. |
 
-- `GET /` — Serves the interactive Operator Cockpit project index dashboard HTML.
+### Architectural Invariants of the n8n Studio
+1. **Branching & Payload Normalization**: Every workflow utilizes dedicated `n8n-nodes-base.set` nodes to normalize input schemas and compile review dossiers, ensuring predictable downstream JSON contracts.
+2. **Deterministic Completion Gates**: `n8n-nodes-base.if` gates strictly separate `done` statuses from `queued`/`running` states and execution failures, preventing race conditions.
+3. **Loopback & Docker Network Routing**: Workflows access the backend service via Docker's internal DNS (`http://collector:8787`), while directing human operators to the local host Cockpit (`http://127.0.0.1:8888/review/{business_id}`).
+
+---
+
+## 11. Operator Cockpit & Local Worker API
+
+### 11.1 Operator Cockpit Endpoints (`app/cockpit.py`)
+
+The Operator Cockpit runs on `127.0.0.1:8888` (or custom `--port`) and provides side-by-side inspection, live claim provenance auditing, surgical section patching, release candidate approval, and GoHighLevel snippet generation:
+
+- `GET /` — Serves the interactive Operator Cockpit dashboard listing all projects and review statuses.
 - `GET /api/health` — Liveness probe returning `{"status": "ok"}`.
 - `GET /review/{project_id}` — Serves the side-by-side Operator Review Cockpit UI (`app/templates/review_cockpit.html`) with a sandboxed preview iframe (`sandbox="allow-scripts"`).
 - `GET /api/projects/{project_id}/summary` — Returns the full project review summary JSON (`verified_claims_count`, `flagged_claims_count`, `curated_assets` with rights status, 5-viewport `screenshots`, `qa_status`, and `critique_status`).
-- `POST /api/projects/{project_id}/confirm-rights` — Updates `rights_confirmed_for_preview` for a specified asset in `research/asset-manifest.json` (`{"asset_id": "...", "confirmed": true}`).
+- `POST /api/projects/{project_id}/confirm-rights` — Updates `rights_confirmed_for_preview` for a specified asset in `research/asset-manifest.json` (`{"asset_file": "...", "confirmed": true}`).
 - `POST /api/projects/{project_id}/revise-section` — Validates and applies a surgical HTML revision to `website/sections/<section_name>.html`, rebuilds `website/index.html`, and re-stages `release-candidate/` (`{"section_name": "...", "new_html": "..."}`).
-- `POST /api/projects/{project_id}/approve` — Validates QA freshness and asset rights, freezes read-only deliverables and referenced assets into `delivery/` and `versions/<version>/`, writes `release-manifest.json`, and creates `projects/_archives/<project_id>-approved.zip`.
+- `POST /api/projects/{project_id}/approve` — Validates QA freshness and asset rights, freezes read-only deliverables and referenced assets into `delivery/` and `versions/<version>/`, writes `release-manifest.json`, and generates `projects/_archives/<project_id>-approved.zip`.
+- `GET /api/projects/{project_id}/ghl-export` — Compiles a scoped GoHighLevel Custom HTML/CSS/JS snippet, rewrites relative media URLs to absolute CDN URLs (defaulting to the local Cockpit asset server if `--cdn-base-url` is omitted), and returns the live `validate_ghl_embed_simulation` audit report (`is_valid`, `unscoped_css_count`, `global_leak_detected`, `asset_urls_absolute`).
+- `GET /ghl-preview/{project_id}` — Renders a live GoHighLevel Funnel Host Simulator page embedding the scoped `#ghl-ev-engine-root-{project_id}` container within a hostile host stylesheet to verify zero styling or scripting leakage.
 - `GET /preview/{project_id}/{subpath:path}` — Safely serves candidate or website HTML/CSS inside the sandboxed preview frame with relative asset path resolution and path-traversal protection.
 - `GET /screenshots/{project_id}/{filename}` — Serves 5-viewport PNG screenshots from `qa/screenshots/`.
 - `GET /assets/{project_id}/{subpath:path}` — Serves local project media assets for cockpit thumbnails and preview rendering.
 
-### 10.2 Local Worker API Endpoints (`src/engine/service.py`)
+### 11.2 Local Worker & Pipeline Service (`src/engine/service.py`)
 
-For asynchronous worker pipelines and n8n orchestration:
+The local worker daemon runs on `127.0.0.1:8787` (inside Docker or standalone) to support automated jobs and n8n webhook orchestration:
 
 #### `GET /health`
 - **Purpose**: Liveness and readiness health probe.
 - **Response (`200 OK`)**: `{"ok": true}`
 
 #### `POST /jobs`
-- **Purpose**: Validate target URL via `safe_url()` and enqueue an asynchronous research collection job.
+- **Purpose**: Validate target URL via `safe_url()` and enqueue an asynchronous research collection job or full pipeline build.
 - **Request Body (`application/json`)**:
   ```json
   {
     "url": "https://puppalacesalon.com",
+    "business_name": "Pup Palace Salon",
+    "business_id": "pup-palace-salon",
     "max_pages": 25,
-    "max_media": 80
+    "max_media": 80,
+    "full_pipeline": true
   }
   ```
 - **Response (`202 Accepted`)**:
@@ -601,7 +627,7 @@ For asynchronous worker pipelines and n8n orchestration:
   ```
 
 #### `GET /jobs/{job_id}`
-- **Purpose**: Fetch the real-time execution status and result summary from SQLite.
+- **Purpose**: Fetch real-time job execution telemetry and artifact paths from SQLite.
 - **Response (`200 OK`)**:
   ```json
   {
@@ -611,19 +637,61 @@ For asynchronous worker pipelines and n8n orchestration:
       "site_url": "https://puppalacesalon.com",
       "pages_crawled": 5,
       "assets_saved": 18,
-      "project_folder": "projects/puppalacesalon-com"
+      "project_folder": "projects/pup-palace-salon",
+      "full_pipeline": true
     }
+  }
+  ```
+
+#### `POST /pipeline/run`
+- **Purpose**: Asynchronously trigger the full 9-stage website generator pipeline for client intake.
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "url": "https://puppalacesalon.com",
+    "business_name": "Pup Palace Luxury Salon",
+    "business_id": "pup-palace-salon",
+    "resume": true
+  }
+  ```
+- **Response (`202 Accepted`)**:
+  ```json
+  {
+    "status": "queued",
+    "project_id": "pup-palace-salon",
+    "run_id": "run_20261107_123456",
+    "log": "Full pipeline started in background thread"
+  }
+  ```
+
+#### `POST /pipeline/{project_id}/approve`
+- **Purpose**: Programmatically freeze approved deliverables and write `delivery/release-manifest.json`.
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "operator_name": "Senior Operator",
+    "notes": "Verified via n8n release sign-off",
+    "version": "v1"
+  }
+  ```
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "status": "approved",
+    "project_id": "pup-palace-salon",
+    "manifest_sha256": "3a7b9c...",
+    "delivery_path": "projects/pup-palace-salon/delivery"
   }
   ```
 
 ---
 
-## 11. Testing & Quality Assurance
+## 12. Testing & Quality Assurance
 
 The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Run linting, static type analysis, and all 138 automated tests
+# Run linting, static type analysis, and all 141 automated tests
 uv run ruff check . && uv run pyright && uv run pytest -v
 ```
 
@@ -635,7 +703,7 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (138 Tests Across 24 Modules)
+### Complete Test Suite Breakdown (141 Tests Across 25 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
@@ -645,8 +713,8 @@ make test        # uv run pytest
 | `tests/test_social_collect.py` | 10 | Subprocess social collection: `--i-have-permission` flag enforcement, dry-run `--dump-json` post timestamp verification, EXIF/GPS metadata stripping, corrupt image rejection, and non-crashing failure classification (`login_required`, `rate_limited`, `extractor_broken`, `unknown`). |
 | `tests/test_approval_archival.py` | 7 | Approval release gate: blocks export on critical QA defects or unconfirmed asset rights; stale QA rejection via candidate SHA-256 matching; read-only release freeze in `delivery/` and `versions/vN/`; release manifest verification; and immunity of delivery files during cleanup. |
 | `tests/test_audit_invariants.py` | 7 | Cross-module engineering audit invariants: rerun preservation of `delivery/` and `versions/`; `verify_release()` asset tamper detection and self-contained `versions/vN/assets/` snapshots; unified canonical section state across automatic and manual revisions; composite `(project_id, asset_id)` SQLite primary key; `provider.default_model` resolution and unverified claim exclusion in LLM prompts; and root-scoped `.ev-ghl-scope` JS + sandboxed Cockpit iframe. |
+| `tests/test_operator_cockpit.py` | 6 | Operator Review Cockpit Web UI: project listing and summary endpoints, responsive viewport HTML preview serving, surgical section revision endpoint, release approval trigger, scoped GHL snippet export, and live Funnel Host Simulator verification. |
 | `tests/test_llm_pipeline_integration.py` | 5 | Real LLM pipeline integration: art direction brand positioning synthesis, fact-grounded section copy generation, visual critic defect feedback, surgical section code revisions, and offline FakeProvider fallbacks. |
-| `tests/test_operator_cockpit.py` | 5 | Operator Review Cockpit Web UI: project listing and summary endpoints, responsive viewport HTML preview serving, surgical section revision endpoint, release approval trigger, and GHL custom code export endpoint. |
 | `tests/test_section_generator_and_reviser.py` | 5 | Section-based synthesis: per-section file generation; index rebuilding from section files; markup security validation (rejects `<script>`, inline handlers, external URLs, oversized payloads); and 1440px / 390px Playwright pixel-invariance screenshot tests. |
 | `tests/test_collector.py` | 5 | Web crawler verification: local HTTP crawl, HTML snapshot SHA-256 verification, stripping of executable DOM nodes, prompt injection neutralization, and exact-substring fact extraction. |
 | `tests/test_pilot_milestone5.py` | 4 | Milestone 5 Five-Business Acceptance Pilot: end-to-end execution across 5 diverse archetypes, single-business CLI execution, audit report generation (`pilot-report.json`), and zero-fabrication assertion validation. |
@@ -661,17 +729,18 @@ make test        # uv run pytest
 | `tests/test_import_meta_export.py` | 3 | Meta data ingestion: handles Instagram and Facebook exports across schema versions, deduplicates assets by SHA-256, enforces streaming ratio caps against zip bombs, and blocks `../` path traversal. |
 | `tests/test_local_preview.py` | 3 | Static QA validation: detects placeholder links (`#`, `javascript:`, empty CTAs), audits mobile menu toggling, and checks `prefers-reduced-motion` compliance. |
 | `tests/test_qa_engine.py` | 3 | 5-viewport Playwright runner: verifies WCAG 2.1 AA contrast mathematics, multi-viewport layout rendering, automated defect logging, and deterministic resource teardown. |
+| `tests/test_n8n_service_pipeline.py` | 2 | Worker service integration: validates FastAPI `/pipeline/run` and `/pipeline/{id}/approve` execution, and tests structural schema invariants across all 4 production 7-node n8n workflows. |
 | `tests/test_pipeline_e2e.py` | 2 | End-to-end integration: full pipeline execution against an ephemeral grooming salon HTTP server, verifying inquiry CTA fallbacks when pricing is unverified. |
 | `tests/test_pipeline_lifecycle.py` | 2 | Crash recovery and state lifecycle: simulated mid-run pipeline crashes, `--resume` stage skipping, and `--pause-for-approval` human approval gate execution. |
 
 ---
 
-## 12. Deployment & Production Considerations
+## 13. Deployment & Container Orchestration
 
 ### Containerized Orchestration (`docker-compose.yml`)
 The repository includes a production-tested Compose configuration running two resource-isolated services bound strictly to loopback:
-- **`n8n`** (`127.0.0.1:5678`, `mem_limit: 1g`): Self-hosted workflow automation engine with state persisted in the `n8n_data` named volume.
-- **`collector`** (`127.0.0.1:8787`, `mem_limit: 2g`, `shm_size: 1g`): Containerized FastAPI collector service mounting local `./projects` to `/data/projects` with dedicated shared memory buffer for Playwright Chromium.
+- **`n8n`** (`127.0.0.1:5678`, `mem_limit: 1g`): Self-hosted workflow automation engine with SQLite state persisted in the `n8n_data` named volume.
+- **`collector`** (`127.0.0.1:8787`, `mem_limit: 2g`, `shm_size: 1g`): Containerized FastAPI collector service mounting local `./projects` to `/data/projects` with a container-safe QA fallback engine.
 
 ```bash
 # Build and run containerized services in background
@@ -687,7 +756,7 @@ docker compose logs -f collector
 
 ---
 
-## 13. Security Architecture
+## 14. Security Architecture
 
 1. **Zero Credential Harvesting or Identity Spoofing**: The engine never requests client passwords, never collects user authentication tokens, never bypasses CAPTCHAs, and never rotates fake proxy identities.
 2. **SSRF & DNS-Rebinding Hardening (HTTP & Browser)**: All outbound HTTP calls pass through `dial_verified_socket`. DNS resolution happens once, validating that every resolved IP is globally routable before socket establishment. Redirects are evaluated per-hop against the same dialer. During Playwright gallery discovery (`src/engine/browser_gallery.py`), a `page.route("**/*", ...)` interceptor validates every browser sub-request against `safe_url()` and `_resolve_public_ips()` before allowing network traffic.
@@ -699,7 +768,7 @@ docker compose logs -f collector
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Symptom / Error | Root Cause | Verified Resolution |
 | :--- | :--- | :--- |
@@ -715,7 +784,7 @@ docker compose logs -f collector
 
 ---
 
-## 15. Milestones & Roadmap
+## 16. Milestones & Roadmap
 
 Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository implements all five core architectural milestones:
 
@@ -731,7 +800,7 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
 
 ---
 
-## 16. Contributing & Definition of Done
+## 17. Contributing & Definition of Done
 
 All contributions must adhere strictly to [`AGENTS.md`](AGENTS.md) and [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md):
 
@@ -746,7 +815,7 @@ All contributions must adhere strictly to [`AGENTS.md`](AGENTS.md) and [`docs/DE
 
 ---
 
-## 17. License & Acknowledgments
+## 18. License & Acknowledgments
 
 - **License**: Internal / Proprietary — Prototype and testing engine for **EditVista** (not licensed for unauthorized public distribution; see [`AGENTS.md`](AGENTS.md)).
 - **Acknowledgments**: Built with Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), [Pydantic v2](https://docs.pydantic.dev/), [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/), [Pillow](https://python-pillow.org/), [Playwright](https://playwright.dev/python/), [gallery-dl](https://github.com/mikf/gallery-dl), [n8n](https://n8n.io/), and [uv](https://docs.astral.sh/uv/).
