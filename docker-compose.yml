@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:2.39.5}
+    image: ${N8N_IMAGE:-n8nio/n8n:latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678"

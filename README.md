@@ -237,7 +237,7 @@ flowchart LR
 | **Subprocess Ingestion** | `gallery-dl` | `==1.30.0` pinned | Subprocess-isolated media metadata extraction from public profiles. |
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
 | **Operator Cockpit & API** | FastAPI, Uvicorn | `fastapi >= 0.115`, `uvicorn >= 0.32` | Interactive review cockpit UI (`127.0.0.1:8787`) and async job worker. |
-| **Workflow Automation** | n8n (Self-Hosted) | `docker.n8n.io/n8nio/n8n:2.39.5` | Optional webhook-driven intake and status polling via Docker Compose. |
+| **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:latest` | Optional webhook-driven intake and status polling via Docker Compose. |
 | **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 128-test test suite. |
 
 ---
@@ -401,7 +401,7 @@ The engine is engineered to run locally without external cloud dependencies. Opt
 | `ANTHROPIC_API_KEY` | Secret | *None* | Optional API key for Anthropic Claude provider in `LLMAdapter`. |
 | `OPENAI_API_KEY` | Secret | *None* | Optional API key for OpenAI provider in `LLMAdapter`. |
 | `GEMINI_API_KEY` | Secret | *None* | Optional API key for Google Gemini provider in `LLMAdapter`. |
-| `N8N_IMAGE` | String | `docker.n8n.io/n8nio/n8n:2.39.5` | Docker image tag for the self-hosted n8n orchestrator. |
+| `N8N_IMAGE` | String | `n8nio/n8n:latest` | Docker image tag for the self-hosted n8n orchestrator. |
 | `GENERIC_TIMEZONE` | String | `Asia/Karachi` | Timezone configured for containerized n8n workflow execution. |
 | `TZ` | String | `Asia/Karachi` | Local system timezone inside Docker containers. |
 
