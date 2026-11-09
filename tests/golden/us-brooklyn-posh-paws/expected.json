@@ -1,0 +1,40 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Posh Paws Brooklyn",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "(718) 555-0199",
+    "claim_key": "phone",
+    "expected_status": "needs_review",
+    "trap": "two conflicting phones (718) 555-0199 vs (718) 555-0122"
+  },
+  {
+    "category": "address",
+    "normalized_value": "155 Montague Street, Brooklyn, NY 11201",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "9am - 7pm daily",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "9am format"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Feline Lion Cut",
+    "claim_key": "service_feline_lion_cut",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Feline Lion Cut - $95.00",
+    "claim_key": "price_feline_lion_cut",
+    "expected_status": "verified"
+  }
+]

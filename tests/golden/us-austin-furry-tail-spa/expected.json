@@ -1,0 +1,44 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Furry Tail Spa",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "(512) 555-0144",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "742 Evergreen Terrace, Austin, TX 78701",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Mon - Sat 8:00 AM - 6:00 PM",
+    "claim_key": "hours",
+    "expected_status": "verified"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Full Dog Groom & Styling",
+    "claim_key": "service_full_dog_groom_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Dog Groom & Styling - $85.00",
+    "claim_key": "price_full_dog_groom_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: Please provide 24 hours notice for any cancellation.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]

@@ -1,0 +1,40 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Bristol Hounds & Bubbles",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "0117 924 8812",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "12 Gloucester Road, Bristol, BS7 8AE",
+    "claim_key": "address",
+    "expected_status": "needs_review",
+    "trap": "footer disagrees with contact page (12 Gloucester Rd vs 5 Park St)"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Tue - Sat 9am - 5:30pm",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "9am format"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Complete Scissor Groom",
+    "claim_key": "service_complete_scissor_groom",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Complete Scissor Groom - \u00a358.00",
+    "claim_key": "price_complete_scissor_groom",
+    "expected_status": "verified"
+  }
+]

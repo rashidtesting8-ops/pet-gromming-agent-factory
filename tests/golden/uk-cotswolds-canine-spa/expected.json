@@ -1,0 +1,52 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Cotswolds Canine Spa",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "01451 820111",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "The Old Mill, Church Lane, Bourton-on-the-Water, GL54 2AW",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Mon - Fri 08:30 - 17:30",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "24h clock 08:30 - 17:30"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Hydrotherapy Bath",
+    "claim_key": "service_hydrotherapy_bath",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Hydrotherapy Bath - \u00a340.00",
+    "claim_key": "price_hydrotherapy_bath",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Scissor Styling - \u00a365 - \u00a385",
+    "claim_key": "price_full_scissor_styling",
+    "expected_status": "needs_review",
+    "trap": "price range \u00a365 - \u00a385"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: All appointment cancellations require 48 hours notice.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]

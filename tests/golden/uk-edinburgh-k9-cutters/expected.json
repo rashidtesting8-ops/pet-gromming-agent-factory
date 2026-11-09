@@ -1,0 +1,52 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Edinburgh K9 Cutters",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "0131 229 4433",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "85 Lothian Road, Edinburgh, EH3 9AW",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Monday to Friday: 9:00 AM - 6:00 PM, Saturday: 9:00 AM - 1:00 PM, Sunday: Closed",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "Monday to Friday + closed days"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Full Breed Styling",
+    "claim_key": "service_full_breed_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Breed Styling - \u00a352.00",
+    "claim_key": "price_full_breed_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Handstripping - from \u00a360",
+    "claim_key": "price_handstripping",
+    "expected_status": "needs_review",
+    "trap": "from \u00a360"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: Please provide 24 hours notice for cancellations or a \u00a320 fee applies.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]

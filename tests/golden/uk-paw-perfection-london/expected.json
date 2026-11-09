@@ -1,0 +1,63 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Paw Perfection London",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "020 7946 0192",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "42 High Street, Islington, London, N1 2AB",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Monday to Friday: 9am - 5pm, Saturday: 10am - 4pm, Sunday: Closed",
+    "claim_key": "hours",
+    "expected_status": "verified"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Full Dog Groom",
+    "claim_key": "service_full_dog_groom",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Dog Groom - \u00a355.00",
+    "claim_key": "price_full_dog_groom",
+    "expected_status": "verified"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Luxury Bath & Brush",
+    "claim_key": "service_luxury_bath_brush",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Luxury Bath & Brush - \u00a335.00",
+    "claim_key": "price_luxury_bath_brush",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Large Breed Groom - from \u00a345",
+    "claim_key": "price_large_breed_from",
+    "expected_status": "needs_review",
+    "trap": "from \u00a345"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: Please provide 24 hours notice for any cancellation to avoid a fee.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]

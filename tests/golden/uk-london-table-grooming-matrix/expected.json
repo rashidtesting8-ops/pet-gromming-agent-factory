@@ -1,0 +1,59 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Marylebone Veterinary & Grooming Matrix",
+    "claim_key": "business_name",
+    "expected_status": "verified",
+    "is_table_heavy": true
+  },
+  {
+    "category": "phone",
+    "normalized_value": "020 7224 3688",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "221B Baker Street, Marylebone, London, NW1 6XE",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Monday 08:00 - 18:00, Saturday 09:00 - 17:00, Sunday Closed",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "table-heavy hours matrix with 24h & closed"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Full Groom & Styling",
+    "claim_key": "service_full_groom_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Groom & Styling: \u00a345.00",
+    "claim_key": "price_full_groom_toy",
+    "expected_status": "verified",
+    "trap": "table cell pricing"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Bath & De-shedding",
+    "claim_key": "service_bath_deshedding",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Bath & De-shedding: \u00a330.00",
+    "claim_key": "price_bath_toy",
+    "expected_status": "verified"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: 24 hours advance notice required for all clinic appointments.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]

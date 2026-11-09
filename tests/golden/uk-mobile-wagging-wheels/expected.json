@@ -1,0 +1,41 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Wagging Wheels Mobile Grooming",
+    "claim_key": "business_name",
+    "expected_status": "verified",
+    "is_mobile": true
+  },
+  {
+    "category": "phone",
+    "normalized_value": "07700 900123",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "Covering Guildford, Woking, and Surrey GU1-GU24",
+    "claim_key": "address",
+    "expected_status": "needs_review",
+    "trap": "mobile service area without fixed address"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Monday to Saturday 8am - 6pm",
+    "claim_key": "hours",
+    "expected_status": "verified"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Mobile Hydrobath & De-shed",
+    "claim_key": "service_mobile_hydrobath",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Mobile Groom & Styling - \u00a360 - \u00a380",
+    "claim_key": "price_full_mobile_groom",
+    "expected_status": "needs_review",
+    "trap": "price range \u00a360 - \u00a380"
+  }
+]

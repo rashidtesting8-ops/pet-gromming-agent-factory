@@ -1,0 +1,124 @@
+{
+  "project_id": "us-brooklyn-posh-paws",
+  "extracted_at": "2026-11-09T14:59:28.704613Z",
+  "facts": [
+    {
+      "fact_id": "fact-15fae534c622",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "business_name",
+      "claim_key": "business_name",
+      "claim_value": "Posh Paws Brooklyn",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Posh Paws Brooklyn",
+      "source_kind": "regex",
+      "conflicts_with": [],
+      "structured_value": null,
+      "is_verified": true,
+      "status": "verified",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-999e56f02b60",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "address",
+      "claim_key": "address",
+      "claim_value": "155 Montague Street, Brooklyn, NY 11201",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Address: 155 Montague Street, Brooklyn, NY 11201",
+      "source_kind": "regex",
+      "conflicts_with": [],
+      "structured_value": null,
+      "is_verified": true,
+      "status": "verified",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-14b695cdb6a2",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "hours",
+      "claim_key": "hours",
+      "claim_value": "9am - 7pm daily",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Hours: 9am - 7pm daily",
+      "source_kind": "regex",
+      "conflicts_with": [],
+      "structured_value": {
+        "monday": "9am - 7pm",
+        "tuesday": "9am - 7pm",
+        "wednesday": "9am - 7pm",
+        "thursday": "9am - 7pm",
+        "friday": "9am - 7pm",
+        "saturday": "9am - 7pm",
+        "sunday": "9am - 7pm"
+      },
+      "is_verified": true,
+      "status": "verified",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-0fe2190b853a",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "services",
+      "claim_key": "service_feline_lion_cut",
+      "claim_value": "Feline Lion Cut",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Feline Lion Cut - $95.00",
+      "source_kind": "regex",
+      "conflicts_with": [],
+      "structured_value": null,
+      "is_verified": true,
+      "status": "verified",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-46c607cb4397",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "pricing",
+      "claim_key": "price_feline_lion_cut",
+      "claim_value": "Feline Lion Cut - $95.00",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Feline Lion Cut - $95.00",
+      "source_kind": "regex",
+      "conflicts_with": [],
+      "structured_value": null,
+      "is_verified": true,
+      "status": "verified",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-21380e72ba2d",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "phone",
+      "claim_key": "phone",
+      "claim_value": "(718) 555-0199 (conflicts with (718) 555-0122)",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Phone: (718) 555-0199",
+      "source_kind": "regex",
+      "conflicts_with": [
+        "fact-94229e29c82c"
+      ],
+      "structured_value": null,
+      "is_verified": false,
+      "status": "needs_review",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    },
+    {
+      "fact_id": "fact-94229e29c82c",
+      "project_id": "us-brooklyn-posh-paws",
+      "category": "phone",
+      "claim_key": "phone",
+      "claim_value": "(718) 555-0122 (conflicts with (718) 555-0199 (conflicts with (718) 555-0122))",
+      "source_url": "https://poshpawsbrooklyn.com",
+      "source_text_snippet": "Posh Paws Brooklyn • 155 Montague Street, Brooklyn, NY 11201 • Direct line: (718) 555-0122",
+      "source_kind": "regex",
+      "conflicts_with": [
+        "fact-21380e72ba2d"
+      ],
+      "structured_value": null,
+      "is_verified": false,
+      "status": "needs_review",
+      "last_checked_at": "2026-11-09T14:59:28.704613Z"
+    }
+  ],
+  "prompt_injection_warnings": []
+}

@@ -1,0 +1,40 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Miami Beach Bark Club",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "(305) 555-0177",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "420 Lincoln Road, Miami Beach, FL 33139",
+    "claim_key": "address",
+    "expected_status": "needs_review",
+    "trap": "footer address disagrees with contact page"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Open 24 Hours for Boarding; Grooming Salon: 8:00 AM - 6:00 PM",
+    "claim_key": "hours",
+    "expected_status": "needs_review",
+    "trap": "24h trap"
+  },
+  {
+    "category": "services",
+    "normalized_value": "South Beach Styling",
+    "claim_key": "service_south_beach_styling",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "South Beach Styling - $90.00",
+    "claim_key": "price_south_beach_styling",
+    "expected_status": "verified"
+  }
+]

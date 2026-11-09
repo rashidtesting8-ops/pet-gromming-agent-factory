@@ -1,0 +1,52 @@
+[
+  {
+    "category": "business_name",
+    "normalized_value": "Emerald Canine Seattle",
+    "claim_key": "business_name",
+    "expected_status": "verified"
+  },
+  {
+    "category": "phone",
+    "normalized_value": "(206) 555-0188",
+    "claim_key": "phone",
+    "expected_status": "verified"
+  },
+  {
+    "category": "address",
+    "normalized_value": "1024 1st Avenue, Seattle, WA 98104",
+    "claim_key": "address",
+    "expected_status": "verified"
+  },
+  {
+    "category": "hours",
+    "normalized_value": "Monday to Friday 7:00 AM - 7:00 PM, Saturday 8:00 AM - 5:00 PM, Sunday: Closed",
+    "claim_key": "hours",
+    "expected_status": "verified",
+    "trap": "Monday to Friday + Sunday: Closed"
+  },
+  {
+    "category": "services",
+    "normalized_value": "Wash & Blowout",
+    "claim_key": "service_wash_blowout",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Wash & Blowout - $40.00",
+    "claim_key": "price_wash_blowout",
+    "expected_status": "verified"
+  },
+  {
+    "category": "pricing",
+    "normalized_value": "Full Groom - from $75",
+    "claim_key": "price_full_groom",
+    "expected_status": "needs_review",
+    "trap": "from $75"
+  },
+  {
+    "category": "cancellation_policy",
+    "normalized_value": "Cancellation Policy: 24 hour notice is required to cancel or reschedule appointments.",
+    "claim_key": "cancellation_policy",
+    "expected_status": "verified"
+  }
+]
