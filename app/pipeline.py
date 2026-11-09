@@ -62,6 +62,7 @@ from app.db import (
 )
 from app.fact_extractor import extract_business_facts
 from app.generator import generate_website
+from app.mvf_gate import enforce_mvf_gate
 from app.qa_engine import QADefectReport, run_qa_engine
 from app.reviser import MAX_REVISION_ITERATIONS, apply_targeted_revisions
 from app.visual_critic import run_visual_critic
@@ -252,6 +253,7 @@ def run_pipeline(
     qa_runner: QARunnerFn | None = None,
     llm_adapter: Any = None,
     new_draft: bool = False,
+    acknowledge_gaps: bool = False,
 ) -> PipelineRunResult:
     """Execute the EditVista lifecycle with SQLite idempotency, resumption, and approval gate."""
     projects_root = Path(projects_dir).resolve()
@@ -408,7 +410,9 @@ def run_pipeline(
                 idempotency_key=extract_idemp,
                 status="running",
             )
-            facts_report = extract_business_facts(project_root)
+            facts_report = extract_business_facts(
+                project_root, extract_classification=True
+            )
             for fact in facts_report.facts:
                 upsert_business_fact(
                     conn,
@@ -641,6 +645,33 @@ def run_pipeline(
             status="completed",
         )
 
+        # Enforce Minimum Viable Facts (MVF) gate and sanitize contact CTAs
+        mvf_report = enforce_mvf_gate(project_root, acknowledge_gaps=acknowledge_gaps)
+        if not mvf_report.passed and not acknowledge_gaps:
+            upsert_project(
+                conn,
+                ProjectRecord(
+                    project_id=project_id,
+                    business_name=business_name,
+                    primary_url=url,
+                    status="needs_review",
+                ),
+            )
+            return PipelineRunResult(
+                project_id=project_id,
+                business_name=business_name,
+                primary_url=url,
+                project_folder=project_root,
+                status="needs_review",
+                qa_passed=qa_report.passed,
+                skipped_stages=skipped_stages,
+                warnings=warnings,
+                errors=[
+                    f"MVF gate not met: missing {', '.join(mvf_report.missing_items)}. "
+                    f"{mvf_report.exact_human_action_needed}"
+                ],
+            )
+
         # Stage candidate standalone and GHL code into release-candidate/ (never delivery/)
         cand_path, _ = stage_release_candidate(project_root)
         cand_sha = hashlib.sha256(cand_path.read_bytes()).hexdigest()
@@ -653,6 +684,10 @@ def run_pipeline(
 
         # Assemble human review summary package
         review_summary = generate_review_summary(project_id, projects_dir=projects_root)
+        review_summary["mvf_report"] = mvf_report.model_dump(mode="json")
+        review_summary["acknowledged_gaps"] = (
+            mvf_report.missing_items if not mvf_report.passed else []
+        )
         _atomic_write_text(
             project_root / "qa" / "review-summary.json",
             json.dumps(review_summary, indent=2),
@@ -754,6 +789,28 @@ def _handle_approve_subcommand(argv: Sequence[str]) -> int:
         db_path=args.db_path,
         acknowledge_open_issues=bool(args.acknowledge_open_issues),
     )
+
+    # If qa/mvf-report.json has acknowledged gaps, record them in release-manifest.json
+    project_root = _resolve_project_root(target_project, args.projects_dir)
+    mvf_report_path = project_root / "qa" / "mvf-report.json"
+    delivery_manifest_path = project_root / "delivery" / "release-manifest.json"
+    version_manifest_path = project_root / "versions" / str(args.version) / "release-manifest.json"
+    if mvf_report_path.is_file() and delivery_manifest_path.is_file():
+        try:
+            mvf_data = json.loads(mvf_report_path.read_text(encoding="utf-8"))
+            if mvf_data.get("acknowledged") or not mvf_data.get("passed"):
+                import stat
+
+                m_data = json.loads(delivery_manifest_path.read_text(encoding="utf-8"))
+                m_data["acknowledged_gaps"] = mvf_data.get("missing_items", [])
+                for p in (delivery_manifest_path, version_manifest_path):
+                    if p.is_file():
+                        os.chmod(p, p.stat().st_mode | stat.S_IWRITE)
+                        p.write_text(json.dumps(m_data, indent=2), encoding="utf-8")
+                        os.chmod(p, p.stat().st_mode & ~stat.S_IWRITE)
+        except Exception:
+            pass
+
     return 0
 
 
@@ -889,6 +946,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow building a new draft on an approved project without modifying releases",
     )
+    parser.add_argument(
+        "--acknowledge-gaps",
+        action="store_true",
+        default=False,
+        help="Acknowledge missing Minimum Viable Facts (MVF) and continue to awaiting_approval",
+    )
     return parser
 
 
@@ -938,6 +1001,7 @@ def main(
         auto_approve_test=auto_approve,
         qa_runner=qa_runner,
         new_draft=bool(args.new_draft),
+        acknowledge_gaps=bool(args.acknowledge_gaps),
     )
     return 0 if result.status in ("completed", "awaiting_approval") else 1
 
