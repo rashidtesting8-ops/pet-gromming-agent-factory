@@ -201,6 +201,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "fastapi" },
+    { name = "phonenumbers" },
     { name = "pillow" },
     { name = "requests" },
     { name = "uvicorn" },
@@ -228,6 +229,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12,<5" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "gallery-dl", marker = "extra == 'social'", specifier = ">=1.30,<2" },
+    { name = "phonenumbers", specifier = "==8.13.55" },
     { name = "pillow", specifier = ">=10,<13" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.55,<2" },
     { name = "requests", specifier = ">=2.31,<3" },
@@ -242,6 +244,15 @@ dev = [
     { name = "ruff", specifier = ">=0.9,<1" },
     { name = "types-beautifulsoup4", specifier = ">=4.12,<5" },
     { name = "types-requests", specifier = ">=2.31,<3" },
+]
+
+[[package]]
+name = "phonenumbers"
+version = "8.13.55"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/23/b4c886487ca212ca87768433a43e2b3099c1c2fa5d9e21d2fbce187cc3c2/phonenumbers-8.13.55.tar.gz", hash = "sha256:57c989dda3eabab1b5a9e3d24438a39ebd032fa0172bf68bfd90ab70b3d5e08b", size = 2296624, upload-time = "2025-02-15T08:06:03.465Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/dc/a7f0a9d5ad8b98bc5406deb00207b268d6d2edd215c21642e8f2ecc6f0ce/phonenumbers-8.13.55-py2.py3-none-any.whl", hash = "sha256:25feaf46135f0fb1e61b69513dc97c477285ba98a69204bf5a8cf241a844a718", size = 2582306, upload-time = "2025-02-15T08:05:56.746Z" },
 ]
 
 [[package]]
