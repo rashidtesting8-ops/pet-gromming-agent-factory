@@ -204,3 +204,18 @@ def test_n8n_workflow_json_files_connect_full_pipeline() -> None:
     assert "n8n-nodes-base.manualTrigger" in wf4_str
     assert "/pipeline/run" in wf4_str
     assert "Compile Executive Review Dossier" in wf4_str
+
+
+def test_service_sqlite_connection_enforces_wal_and_busy_timeout(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Worker service jobs.sqlite must enforce WAL journal mode and a >=5000ms busy_timeout."""
+    import engine.service as srv
+
+    monkeypatch.setattr(srv, "DB", tmp_path / "_system" / "jobs.sqlite")
+    with srv.connect() as con:
+        journal_mode = str(con.execute("PRAGMA journal_mode;").fetchone()[0]).lower()
+        busy_timeout = int(con.execute("PRAGMA busy_timeout;").fetchone()[0])
+    assert journal_mode == "wal"
+    assert busy_timeout >= 5000
+

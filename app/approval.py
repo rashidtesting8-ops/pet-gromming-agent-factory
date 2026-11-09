@@ -92,13 +92,14 @@ class ReleaseManifest(BaseModel):
     version: str = "v1"
     version_hash: str
     approved_at: datetime = Field(default_factory=_utc_now)
-    approver: str = Field(default="Dev")
-    operator_name: str = Field(default="Dev")
+    approver: str
+    operator_name: str
     qa_report_sha256: str = Field(default="")
-    notes: str = ""
+    notes: str
     checksum_tree: dict[str, str]
     section_hashes: dict[str, str] = Field(default_factory=dict)
     asset_signatures: dict[str, str] = Field(default_factory=dict)
+    acknowledged_issues: list[str] = Field(default_factory=list)
 
 
 def generate_review_summary(
@@ -302,18 +303,24 @@ def compute_release_checksum_tree(project_root: Path) -> tuple[str, dict[str, st
 def approve_release(
     project_id_or_path: str | Path,
     version: str = "v1",
-    operator_name: str = "Dev",
-    notes: str = "Verified",
+    operator_name: str | None = None,
+    notes: str | None = None,
     *,
     projects_dir: str | Path = "./projects",
     db_path: str | Path | None = None,
+    acknowledge_open_issues: bool | None = None,
 ) -> str:
     """Human approval gate: verifies QA/rights, copies candidate to delivery/ & versions/vN/,
 
     writes release-manifest.json with per-file and per-section hashes, and makes files read-only.
     """
-    if not operator_name.strip():
+    clean_op = operator_name.strip() if operator_name is not None else None
+    if clean_op is not None and not clean_op:
         raise ValueError("operator_name must not be empty")
+
+    clean_notes = notes.strip() if notes is not None else None
+    if clean_notes is not None and not clean_notes:
+        raise ValueError("notes must not be empty")
 
     project_root = _resolve_project_root(project_id_or_path, projects_dir)
     if not project_root.is_dir():
@@ -365,6 +372,53 @@ def approve_release(
             f"Release blocked: asset rights_confirmed_for_preview is false for {offending_assets}"
         )
 
+    # 3b. Refuse if each used asset has no matching audit entry for its CURRENT sha256
+    from app.rights import check_used_assets_audit_signatures
+
+    used_assets = extract_used_assets(candidate_html.read_text(encoding="utf-8"))
+    audit_file = project_root / "research" / "rights-audit.jsonl"
+    audit_violations = check_used_assets_audit_signatures(project_root, used_assets)
+    if audit_file.is_file() and audit_violations:
+        raise ReleaseApprovalGateError(
+            f"Release blocked: used asset has no matching audit entry for its CURRENT sha256: "
+            f"{audit_violations}"
+        )
+
+    # 3c. Refuse if open visual defects or unverified facts are present unless acknowledged
+    open_issues: list[str] = []
+    critique_path = project_root / "qa" / "visual-critique.json"
+    if critique_path.is_file():
+        try:
+            crit_data = json.loads(critique_path.read_text(encoding="utf-8"))
+            if crit_data.get("status") == "defects_found" or crit_data.get("defects"):
+                for d in crit_data.get("defects", []):
+                    desc = d.get("description") if isinstance(d, dict) else str(d)
+                    open_issues.append(f"visual_critique_defect: {desc}")
+        except Exception:
+            pass
+
+    facts_path = project_root / "research" / "business-facts.json"
+    if facts_path.is_file():
+        try:
+            facts_payload = json.loads(facts_path.read_text(encoding="utf-8"))
+            cand_html_text = candidate_html.read_text(encoding="utf-8")
+            for fact in facts_payload.get("facts", []):
+                if not bool(fact.get("is_verified", False)) or fact.get("status") == "needs_review":
+                    claim_val = str(fact.get("claim_value", "")).strip()
+                    if claim_val and claim_val in cand_html_text:
+                        open_issues.append(
+                            f"unverified_fact_used: {fact.get('category')}."
+                            f"{fact.get('claim_key')}='{claim_val}'"
+                        )
+        except Exception:
+            pass
+
+    if open_issues and acknowledge_open_issues is False:
+        raise ReleaseApprovalGateError(
+            f"Release blocked: open issues detected (visual critique defects or unverified facts): "
+            f"{open_issues}. Pass --acknowledge-open-issues to approve."
+        )
+
     # 4. Copy candidate into delivery/ and versions/vN/
     delivery_dir = project_root / "delivery"
     delivery_dir.mkdir(parents=True, exist_ok=True)
@@ -408,19 +462,21 @@ def approve_release(
     version_hash, checksum_tree, asset_signatures = compute_release_checksum_tree(project_root)
 
     qa_report_sha256 = hashlib.sha256(qa_path.read_bytes()).hexdigest()
-    approver_name = operator_name.strip()
+    final_op = clean_op if clean_op is not None else "Dev"
+    final_notes = clean_notes if clean_notes is not None else "Verified"
     manifest = ReleaseManifest(
         project_id=resolved_project_id,
         version=version,
         version_hash=version_hash,
         approved_at=_utc_now(),
-        approver=approver_name,
-        operator_name=approver_name,
+        approver=final_op,
+        operator_name=final_op,
         qa_report_sha256=qa_report_sha256,
-        notes=notes.strip(),
+        notes=final_notes,
         checksum_tree=checksum_tree,
         section_hashes=section_hashes,
         asset_signatures=asset_signatures,
+        acknowledged_issues=open_issues if acknowledge_open_issues else [],
     )
     manifest_json = manifest.model_dump_json(indent=2)
     _atomic_write_text(delivery_dir / "release-manifest.json", manifest_json)

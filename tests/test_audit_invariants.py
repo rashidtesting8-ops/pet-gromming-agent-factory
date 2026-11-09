@@ -162,6 +162,7 @@ def test_p1_1_pipeline_rerun_preserves_approved_delivery_and_versions(
         auto_approve_test=False,
         pause_for_approval=True,
         qa_runner=_mock_qa_runner,
+        new_draft=True,
     )
     assert res2.project_folder == res1.project_folder
     # v1 release must still exist and remain byte-for-byte identical!

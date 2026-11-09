@@ -184,27 +184,32 @@ def check_used_asset_rights(
 
 def _build_ghl_snippet(html: str, scope_id: str) -> str:
     """Convert approved standalone HTML into a scoped GoHighLevel snippet with no html/head/body."""
-    soup = BeautifulSoup(html, "html.parser")
-    styles = [tag.decode_contents() for tag in soup.find_all("style")]
-    scripts = [tag.decode_contents() for tag in soup.find_all("script")]
+    from app.ghl_exporter import (
+        UnscopedCSSError,
+        find_unscoped_selectors,
+        isolate_javascript,
+        sanitize_and_extract_markup,
+        scope_css,
+    )
 
-    body = soup.body
-    if body is not None:
-        for s in body.find_all("script"):
-            s.decompose()
-        body_inner = "".join(str(child) for child in body.contents).strip()
-    else:
-        body_inner = html.strip()
+    root_selector = f"#{scope_id}"
+    inner_markup, styles, scripts = sanitize_and_extract_markup(html)
 
     parts: list[str] = [f'<div id="{scope_id}" class="ev-ghl-scope">']
     if styles:
         combined_css = "\n".join(s.strip() for s in styles if s.strip())
-        parts.append(f"<style>\n{combined_css}\n</style>")
-    parts.append(body_inner)
+        if combined_css:
+            scoped_css = scope_css(combined_css, root_selector)
+            unscoped = find_unscoped_selectors(scoped_css, root_selector)
+            if unscoped:
+                raise UnscopedCSSError(f"Unscoped CSS selectors detected: {unscoped}")
+            parts.append(f"<style>\n{scoped_css}\n</style>")
+    parts.append(inner_markup)
     if scripts:
         combined_js = "\n".join(s.strip() for s in scripts if s.strip())
         if combined_js:
-            parts.append(f"<script>\n(function() {{\n{combined_js}\n}})();\n</script>")
+            isolated_js = isolate_javascript(combined_js, scope_id)
+            parts.append(f"<script>\n{isolated_js}\n</script>")
     parts.append("</div>\n")
     return "\n".join(parts)
 

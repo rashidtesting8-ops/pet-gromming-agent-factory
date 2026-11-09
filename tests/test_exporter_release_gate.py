@@ -160,3 +160,29 @@ def test_exporter_refuses_when_used_asset_is_missing_from_manifests(tmp_path: Pa
     assert res["status"] == "blocked_unconfirmed_rights"
     assert not (project / "delivery/approved-homepage.html").exists()
 
+
+def test_exporter_ghl_snippet_scopes_all_css_selectors_and_blocks_global_js_leak(
+    tmp_path: Path,
+) -> None:
+    """delivery/ghl-ready.html built by engine.exporter must scope all CSS selectors."""
+    from app.ghl_exporter import find_unscoped_selectors
+    from bs4 import BeautifulSoup, Tag
+
+    project = _setup_project(tmp_path, instagram_rights=True, website_rights=True)
+    result = export_release(project)
+    assert result["status"] == "exported"
+
+    ghl_text = (project / "delivery/ghl-ready.html").read_text(encoding="utf-8")
+    soup = BeautifulSoup(ghl_text, "html.parser")
+    root_div = soup.find("div")
+    assert isinstance(root_div, Tag)
+    root_id = str(root_div.get("id", ""))
+    assert root_id.startswith("ev-ghl-")
+
+    style_tag = soup.find("style")
+    assert style_tag is not None
+    css_content = style_tag.get_text()
+    unscoped = find_unscoped_selectors(css_content, f"#{root_id}")
+    assert unscoped == [], f"Expected zero unscoped selectors in ghl-ready.html, got {unscoped}"
+
+

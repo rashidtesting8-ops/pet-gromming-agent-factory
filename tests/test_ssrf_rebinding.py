@@ -255,3 +255,27 @@ def test_real_urllib3_stack_preserves_host_header_and_blocks_redirects() -> None
         response_get(session, "http://redirect-n8n.example.com/to-n8n")
     assert all(port != 5678 for _, port in connected_ips)
 
+
+def test_browser_gallery_ssrf_boundary_blocks_dns_rebinding_to_private_ip() -> None:
+    """Browser gallery route guard must resolve DNS and block private IPs."""
+    from engine.browser_gallery import verify_browser_url
+
+    def fake_resolver(host: str, port: int) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
+        if host == "cdn.public-salon.example":
+            return [_addrinfo("93.184.216.34", port)]
+        if host == "rebind-internal.example":
+            return [_addrinfo("169.254.169.254", port)]
+        return [_addrinfo("127.0.0.1", port)]
+
+    # Public hostname resolving to public IP passes
+    ips = verify_browser_url("https://cdn.public-salon.example/dog.jpg", resolver=fake_resolver)
+    assert ips == ["93.184.216.34"]
+
+    # Public-looking hostname resolving to cloud metadata or loopback IP is blocked
+    with pytest.raises(ValueError, match="Non-public|Non-global|blocked"):
+        verify_browser_url(
+            "https://rebind-internal.example/latest/meta-data/",
+            resolver=fake_resolver,
+        )
+
+

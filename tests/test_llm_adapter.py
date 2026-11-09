@@ -365,3 +365,64 @@ def test_retries_and_timeouts_count_toward_call_cap(tmp_path: Path) -> None:
     with pytest.raises(BudgetExceeded, match="call cap exceeded"):
         adapter.complete("Attempt 3", project_id="timeout-job", stage="s1")
 
+
+def test_groq_provider_builds_openai_payload_and_parses_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GroqProvider must format OpenAI-compatible messages and connect to api.groq.com."""
+    import requests
+
+    from engine.llm.adapter import GroqProvider
+
+    observed_requests: list[dict[str, Any]] = []
+
+    class MockResponse:
+        status_code = 200
+        ok = True
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "choices": [{"message": {"content": "Fast Llama response from Groq"}}],
+                "usage": {"prompt_tokens": 42, "completion_tokens": 18, "total_tokens": 60},
+            }
+
+    def fake_post(url: str, **kwargs: Any) -> MockResponse:
+        observed_requests.append({"url": url, **kwargs})
+        return MockResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    provider = GroqProvider(api_key="gsk-test-mock-key-12345")
+    res = provider.complete("Design luxury color palette", model="llama-3.3-70b-versatile")
+
+    assert res.content == "Fast Llama response from Groq"
+    assert res.prompt_tokens == 42
+    assert res.completion_tokens == 18
+    assert res.model == "llama-3.3-70b-versatile"
+
+    assert len(observed_requests) == 1
+    req = observed_requests[0]
+    assert req["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert req["headers"]["Authorization"] == "Bearer gsk-test-mock-key-12345"
+    assert req["json"]["model"] == "llama-3.3-70b-versatile"
+    assert req["json"]["messages"][0]["content"] == [
+        {"type": "text", "text": "Design luxury color palette"}
+    ]
+
+
+def test_get_default_adapter_selects_groq_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_default_adapter must instantiate GroqProvider when GROQ_API_KEY is present."""
+    from engine.llm.adapter import GroqProvider, get_default_adapter
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-active-free-key")
+
+    adapter = get_default_adapter()
+    assert isinstance(adapter.provider, GroqProvider)
+    assert adapter.provider.api_key == "gsk-active-free-key"
+
+

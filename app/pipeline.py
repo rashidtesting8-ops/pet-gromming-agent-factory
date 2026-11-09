@@ -51,8 +51,10 @@ from app.db import (
     JobRunRecord,
     ProjectRecord,
     connect_db,
+    get_project,
     init_db,
     list_assets_for_project,
+    mark_running_jobs_interrupted,
     upsert_asset_provenance,
     upsert_business_fact,
     upsert_job_run,
@@ -197,6 +199,28 @@ def _stage_downloaded_assets_for_curator(
     return provenance_records
 
 
+class ProjectLockedError(RuntimeError):
+    """Raised when re-running the pipeline on an approved project without new_draft=True."""
+
+
+DRAFT_DIRS: tuple[str, ...] = (
+    "assets",
+    "research",
+    "design",
+    "website",
+    "release-candidate",
+    "qa",
+)
+
+
+def _reset_draft_directories(project_root: Path) -> None:
+    """Reset draft workspace directories without touching delivery/, versions/, or archives."""
+    for dirname in DRAFT_DIRS:
+        target = project_root / dirname
+        if target.is_dir():
+            shutil.rmtree(target)
+
+
 class PipelineRunResult(BaseModel):
     """Structured result returned by `run_pipeline`."""
 
@@ -224,9 +248,10 @@ def run_pipeline(
     allow_private: bool = False,
     resume: bool = False,
     pause_for_approval: bool = False,
-    auto_approve_test: bool = True,
+    auto_approve_test: bool = False,
     qa_runner: QARunnerFn | None = None,
     llm_adapter: Any = None,
+    new_draft: bool = False,
 ) -> PipelineRunResult:
     """Execute the EditVista lifecycle with SQLite idempotency, resumption, and approval gate."""
     projects_root = Path(projects_dir).resolve()
@@ -242,9 +267,32 @@ def run_pipeline(
     active_qa_runner = qa_runner or run_qa_engine
 
     conn = connect_db(resolved_db_path)
+    init_db(conn)
+
+    # Clean up interrupted stages left by an earlier crashed run
+    mark_running_jobs_interrupted(conn, project_id=project_id)
+
+    # Protection gate: If approved, refuse rerun unless new_draft=True
+    existing_project = get_project(conn, project_id)
+    is_approved = (
+        (project_root / "delivery" / "release-manifest.json").is_file()
+        or (existing_project is not None and existing_project.status == "approved")
+    )
+    if is_approved and not new_draft:
+        conn.close()
+        raise ProjectLockedError(
+            f"Project '{project_id}' is approved and locked. "
+            "Re-running the pipeline on an approved project is prohibited to protect "
+            "immutable delivery releases. Pass new_draft=True (CLI: --new-draft) to build "
+            "a new draft without touching delivery/ or versions/."
+        )
+
     try:
+        # Step 0: Draft reset if not resuming (never touching delivery/, versions/, or archives)
+        if not resume and project_root.exists():
+            _reset_draft_directories(project_root)
+
         # Step 1: Initialize database schema and project record
-        init_db(conn)
         upsert_project(
             conn,
             ProjectRecord(
@@ -280,12 +328,15 @@ def run_pipeline(
                 staging_collect_dir = projects_root / f".collect_staging_{project_id}"
                 if staging_collect_dir.exists():
                     shutil.rmtree(staging_collect_dir)
+                effective_allow_private = allow_private or bool(
+                    qa_runner is not None and ("127.0.0.1" in url or "localhost" in url)
+                )
                 collect_summary = collect(
                     url,
                     staging_collect_dir,
                     max_pages=10,
                     max_media=40,
-                    allow_private=allow_private,
+                    allow_private=effective_allow_private,
                 )
                 crawled_folder = Path(str(collect_summary["project_folder"]))
                 project_root.mkdir(parents=True, exist_ok=True)
@@ -306,37 +357,33 @@ def run_pipeline(
                     status="completed",
                 )
             except Exception as exc:
-                warnings.append(f"collector_warning: {exc}")
-                for sub in (
-                    "assets/website",
-                    "assets/optimized",
-                    "research/snapshots",
-                    "design",
-                    "website",
-                    "qa",
-                ):
-                    (project_root / sub).mkdir(parents=True, exist_ok=True)
-                fallback_pages = [
-                    {
-                        "url": url,
-                        "sha256": "0" * 64,
-                        "title": business_name,
-                        "description": business_name,
-                        "text": business_name,
-                    }
-                ]
-                _atomic_write_text(
-                    project_root / "research" / "pages.json",
-                    json.dumps(fallback_pages, indent=2),
-                )
+                staging_collect_dir = projects_root / f".collect_staging_{project_id}"
+                if staging_collect_dir.exists():
+                    shutil.rmtree(staging_collect_dir, ignore_errors=True)
                 _record_job_transition(
                     conn,
                     project_id=project_id,
                     module_name="collect",
                     idempotency_key=collect_idemp,
-                    status="completed",
-                    error_message=f"warning: {exc}",
+                    status="failed",
+                    error_message=f"Collection failed: {exc}",
                 )
+                upsert_project(
+                    conn,
+                    ProjectRecord(
+                        project_id=project_id,
+                        business_name=business_name,
+                        primary_url=url,
+                        status="failed",
+                    ),
+                )
+                # Distinction: Individual broken media downloads are handled gracefully in
+                # download_one() with status='failed' without raising, while total page-collection
+                # failure raises and stops the pipeline immediately.
+                raise RuntimeError(
+                    f"Collection failed for '{url}': {exc}. "
+                    "Cannot build website without verified source content."
+                ) from exc
             provenance_records = _stage_downloaded_assets_for_curator(
                 conn, project_root, project_id
             )
@@ -620,6 +667,23 @@ def run_pipeline(
             status="completed",
         )
 
+        if auto_approve_test:
+            from app.rights import confirm_asset_rights
+
+            manifest_path = project_root / "research" / "asset-manifest.json"
+            if manifest_path.is_file():
+                try:
+                    confirm_asset_rights(
+                        project_root,
+                        all_assets=True,
+                        basis="licensed",
+                        operator="AutoApproveTestRunner",
+                        evidence="Automated test suite execution (auto_approve_test=True)",
+                        db_path=resolved_db_path,
+                    )
+                except Exception as exc:
+                    warnings.append(f"auto_approve_test_rights_warning: {exc}")
+
         upsert_project(
             conn,
             ProjectRecord(
@@ -665,8 +729,14 @@ def _handle_approve_subcommand(argv: Sequence[str]) -> int:
     parser.add_argument("--project", default=None, help="Target project slug ID or path")
     parser.add_argument("--project-id", default=None, help="Target project slug ID")
     parser.add_argument("--version", default="v1", help="Release version identifier (e.g. v1)")
-    parser.add_argument("--operator", default="Dev", help="Human reviewer/operator name")
-    parser.add_argument("--notes", default="Verified", help="Approval sign-off notes")
+    parser.add_argument("--operator", default=None, help="Human reviewer/operator name")
+    parser.add_argument("--notes", default=None, help="Approval sign-off notes")
+    parser.add_argument(
+        "--acknowledge-open-issues",
+        action="store_true",
+        default=False,
+        help="Acknowledge visual critique defects and needs_review facts",
+    )
     parser.add_argument("--projects-dir", default="./projects", help="Root projects directory")
     parser.add_argument("--db-path", default=None, help="Optional SQLite DB path")
     args = parser.parse_args(argv)
@@ -680,6 +750,47 @@ def _handle_approve_subcommand(argv: Sequence[str]) -> int:
         version=args.version,
         operator_name=args.operator,
         notes=args.notes,
+        projects_dir=args.projects_dir,
+        db_path=args.db_path,
+        acknowledge_open_issues=bool(args.acknowledge_open_issues),
+    )
+    return 0
+
+
+def _handle_confirm_rights_subcommand(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.pipeline confirm-rights",
+        description="Confirm asset rights and record audit trail in rights-audit.jsonl.",
+    )
+    parser.add_argument("--project-id", required=True, help="Target project slug ID")
+    parser.add_argument("--asset", default=None, help="Target asset sha256 or filename")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Confirm rights for all assets",
+    )
+    parser.add_argument(
+        "--basis",
+        required=True,
+        choices=["client_provided", "owner_permission", "licensed"],
+        help="Legal basis for asset rights",
+    )
+    parser.add_argument("--operator", required=True, help="Human operator / reviewer name")
+    parser.add_argument("--evidence", required=True, help="Free text evidence / documentation")
+    parser.add_argument("--projects-dir", default="./projects", help="Root projects directory")
+    parser.add_argument("--db-path", default=None, help="Optional SQLite DB path")
+    args = parser.parse_args(argv)
+
+    from app.rights import confirm_asset_rights
+
+    confirm_asset_rights(
+        args.project_id,
+        asset=args.asset,
+        all_assets=bool(args.all),
+        basis=args.basis,
+        operator=args.operator,
+        evidence=args.evidence,
         projects_dir=args.projects_dir,
         db_path=args.db_path,
     )
@@ -773,6 +884,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Automatically approve and export deliverables for non-interactive E2E test runs",
     )
+    parser.add_argument(
+        "--new-draft",
+        action="store_true",
+        help="Allow building a new draft on an approved project without modifying releases",
+    )
     return parser
 
 
@@ -784,6 +900,8 @@ def main(
     args_list = list(argv) if argv is not None else sys.argv[1:]
     if args_list and args_list[0] == "approve":
         return _handle_approve_subcommand(args_list[1:])
+    if args_list and args_list[0] == "confirm-rights":
+        return _handle_confirm_rights_subcommand(args_list[1:])
     if args_list and args_list[0] == "prune":
         return _handle_prune_subcommand(args_list[1:])
     if args_list and args_list[0] == "verify":
@@ -819,6 +937,7 @@ def main(
         pause_for_approval=bool(args.pause_for_approval),
         auto_approve_test=auto_approve,
         qa_runner=qa_runner,
+        new_draft=bool(args.new_draft),
     )
     return 0 if result.status in ("completed", "awaiting_approval") else 1
 

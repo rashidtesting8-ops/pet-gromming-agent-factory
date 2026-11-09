@@ -39,10 +39,17 @@ DEFAULT_PRICE_TABLE: dict[str, dict[str, float]] = {
     "gemini-1.5-flash": {"prompt_per_1k": 0.000075, "completion_per_1k": 0.0003},
     "gpt-4o": {"prompt_per_1k": 0.005, "completion_per_1k": 0.015},
     "fake-model-v1": {"prompt_per_1k": 0.001, "completion_per_1k": 0.002},
+    "openai/gpt-oss-120b": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
+    "openai/gpt-oss-20b": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
+    "qwen/qwen3.8-27b": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
+    "llama-3.3-70b-versatile": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
+    "llama-3.1-8b-instant": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
+    "llama-3.2-11b-vision-preview": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
 }
 
 SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"gsk_[A-Za-z0-9_-]{16,}"),
     re.compile(r"AIza[0-9A-Za-z-_]{35}"),
     re.compile(r"(?i)bearer\s+[a-zA-Z0-9._~+/-]+=*"),
 ]
@@ -313,6 +320,55 @@ class OpenAIProvider:
         )
 
 
+class GroqProvider(OpenAIProvider):
+    """Groq provider using OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        default_model: str | None = None,
+        timeout_seconds: float = 60.0,
+        base_url: str = "https://api.groq.com/openai/v1/chat/completions",
+    ) -> None:
+        key = api_key or get_env_api_key("GROQ_API_KEY")
+        chosen_model = default_model or os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+        super().__init__(api_key=key, default_model=chosen_model, timeout_seconds=timeout_seconds)
+        self.base_url = base_url
+
+    def complete(
+        self,
+        prompt: str,
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if not self.api_key:
+            raise RuntimeError("Missing GROQ_API_KEY environment variable")
+        active_model = model or self.default_model
+        payload = self._build_request_payload(prompt, images=images, model=active_model, **kwargs)
+        resp = requests.post(
+            self.base_url,
+            headers=self._build_headers(),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"Groq API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        text = choice.get("message", {}).get("content", "")
+        usage = data.get("usage", {})
+        p_tokens = int(usage.get("prompt_tokens", 0))
+        c_tokens = int(usage.get("completion_tokens", 0))
+        return LLMResponse(
+            content=text,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=p_tokens + c_tokens,
+            model=active_model,
+        )
+
+
 class GeminiProvider:
     """Google Gemini provider implementation using REST generateContent endpoint."""
 
@@ -441,6 +497,36 @@ def _atomic_write_text(target: Path, content: str) -> None:
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+_DOTENV_LOADED = False
+
+
+def load_env_file(dotenv_path: Path | None = None, *, force: bool = False) -> None:
+    """Load key-value pairs from .env into os.environ once at module/startup time."""
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED and not force:
+        return
+    _DOTENV_LOADED = True
+    target = dotenv_path or Path(".env")
+    if not target.is_file():
+        return
+    try:
+        content = target.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            clean = line.strip()
+            if not clean or clean.startswith("#") or "=" not in clean:
+                continue
+            k, v = clean.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip("'\"")
+            if k and v and k not in os.environ:
+                os.environ[k] = v
+    except OSError:
+        pass
+
+
+load_env_file()
 
 
 def get_env_api_key(provider_env_var: str) -> str | None:
@@ -885,4 +971,6 @@ def get_default_adapter(
         return LLMAdapter(OpenAIProvider(), config=cfg)
     if get_env_api_key("GEMINI_API_KEY"):
         return LLMAdapter(GeminiProvider(), config=cfg)
+    if get_env_api_key("GROQ_API_KEY"):
+        return LLMAdapter(GroqProvider(), config=cfg)
     return LLMAdapter(FakeProvider(), config=cfg)

@@ -16,12 +16,32 @@ from urllib.robotparser import RobotFileParser
 from bs4 import BeautifulSoup
 
 from engine.collector import (
+    _default_resolver,
     build_collector_session,
     collect_page_text,
     download_one,
     grab_media,
     safe_url,
+    validate_ip_address,
 )
+
+
+def verify_browser_url(url: str, *, resolver: Any = None) -> list[str]:
+    """Validate URL syntax and verify all DNS records resolve exclusively to public IPs."""
+    safe_url(url)
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").strip().strip("[]")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    active_resolver = resolver or _default_resolver
+    records = list(active_resolver(host, port))
+    if not records:
+        raise ValueError(f"DNS resolution returned no addresses for {host!r}")
+    verified_ips: list[str] = []
+    for entry in records:
+        sockaddr = entry[4]
+        raw_ip = str(sockaddr[0])
+        verified_ips.append(validate_ip_address(raw_ip))
+    return verified_ips
 
 
 def render_gallery(
@@ -31,12 +51,13 @@ def render_gallery(
     max_scrolls: int = 5,
     download: bool = True,
     max_files: int = 50,
+    resolver: Any = None,
 ) -> dict[str, Any]:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError("Install requirements-browser.txt and Chromium") from exc
-    safe_url(url)
+    verify_browser_url(url, resolver=resolver)
     project_path = Path(project).resolve()
     pages_file = project_path / "research/pages.json"
     if not pages_file.is_file():
@@ -54,7 +75,7 @@ def render_gallery(
 
             def _enforce_ssrf_boundary(route: Any) -> None:
                 try:
-                    safe_url(route.request.url)
+                    verify_browser_url(route.request.url, resolver=resolver)
                     route.continue_()
                 except Exception:
                     route.abort()

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from app.approval import verify_release
 from app.pilot import (
     PILOT_BUSINESS_SPECS,
@@ -177,3 +178,34 @@ def test_execute_acceptance_pilot_runs_all_five_and_generates_report(tmp_path: P
         p_dir = projects_dir / res.slug
         assert verify_release(p_dir) is True
         assert res.zero_fabrication_passed is True
+
+
+def test_pilot_cli_accepts_live_flag_and_wires_live_qa_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI main() must accept --live as documented in README.md and wire the live QA runner."""
+    import app.pilot as pilot_mod
+
+    projects_dir = tmp_path / "projects_live"
+    projects_dir.mkdir(parents=True)
+
+    called_live = {"count": 0}
+
+    def _spy_live_qa(project_folder: str | Path, **kwargs: object) -> QADefectReport:
+        called_live["count"] += 1
+        return _mock_qa_runner(project_folder, **kwargs)
+
+    monkeypatch.setattr(pilot_mod, "run_qa_engine", _spy_live_qa, raising=False)
+
+    exit_code = pilot_mod.main(
+        [
+            "--business",
+            PILOT_BUSINESS_SPECS[0].slug,
+            "--live",
+            "--projects-dir",
+            str(projects_dir),
+        ]
+    )
+    assert exit_code == 0
+    assert called_live["count"] >= 2
+

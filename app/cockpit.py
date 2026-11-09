@@ -253,6 +253,7 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/", response_class=HTMLResponse)
+    @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:
         conn = connect_db(db_path)
         try:

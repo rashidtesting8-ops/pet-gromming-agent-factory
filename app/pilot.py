@@ -40,7 +40,7 @@ from app.db import (
     upsert_project,
 )
 from app.generator import generate_website
-from app.qa_engine import BREAKPOINTS, QADefectReport, ViewportQAResult
+from app.qa_engine import BREAKPOINTS, QADefectReport, ViewportQAResult, run_qa_engine
 from app.reviser import run_critique_revision_loop
 
 ArchetypeKind = Literal[
@@ -543,9 +543,11 @@ def run_single_pilot_business(
     *,
     projects_dir: str | Path = "./projects",
     qa_runner: Callable[[Path], QADefectReport] | None = None,
+    live: bool = False,
 ) -> PilotBusinessResult:
     """Execute the EditVista pipeline end-to-end for one pilot business specification."""
     start_time = time.monotonic()
+    active_qa_runner = qa_runner or (run_qa_engine if live else None)
     p_dir = Path(projects_dir).resolve()
     p_dir.mkdir(parents=True, exist_ok=True)
     project_root = p_dir / spec.slug
@@ -671,8 +673,8 @@ def run_single_pilot_business(
         cand_sha = (
             hashlib.sha256(cand_file.read_bytes()).hexdigest() if cand_file.is_file() else ""
         )
-        if qa_runner is not None:
-            rep = qa_runner(project_root)
+        if active_qa_runner is not None:
+            rep = active_qa_runner(project_root)
             if not rep.candidate_sha256 and cand_sha:
                 rep.candidate_sha256 = cand_sha
                 _atomic_write_text(
@@ -769,6 +771,7 @@ def execute_acceptance_pilot(
     *,
     projects_dir: str | Path = "./projects",
     qa_runner: Callable[[Path], QADefectReport] | None = None,
+    live: bool = False,
 ) -> PilotAcceptanceReport:
     """Run all 5 pilot business archetypes end-to-end and generate acceptance reports."""
     p_dir = Path(projects_dir).resolve()
@@ -780,7 +783,12 @@ def execute_acceptance_pilot(
     total_start = time.monotonic()
 
     for spec in PILOT_BUSINESS_SPECS:
-        res = run_single_pilot_business(spec, projects_dir=p_dir, qa_runner=qa_runner)
+        res = run_single_pilot_business(
+            spec,
+            projects_dir=p_dir,
+            qa_runner=qa_runner,
+            live=live,
+        )
         results.append(res)
 
     total_duration = time.monotonic() - total_start
@@ -874,6 +882,11 @@ def execute_acceptance_pilot(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="EditVista Milestone 5 Acceptance Pilot")
     parser.add_argument("--run-all", action="store_true", help="Run all 5 pilot archetypes")
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Run live Playwright 5-viewport QA engine instead of synthetic mock QA",
+    )
     parser.add_argument("--business", help="Run a specific business slug")
     parser.add_argument("--projects-dir", default="./projects", help="Projects root directory")
     args = parser.parse_args(argv)
@@ -883,12 +896,16 @@ def main(argv: list[str] | None = None) -> int:
         if not spec:
             print(f"Error: Unknown business slug '{args.business}'")
             return 1
-        res = run_single_pilot_business(spec, projects_dir=args.projects_dir)
+        res = run_single_pilot_business(
+            spec,
+            projects_dir=args.projects_dir,
+            live=bool(args.live),
+        )
         print(f"Business '{res.slug}' completed successfully! Status: {res.status}")
         return 0
 
     print("Executing EditVista Milestone 5: Five-Business Acceptance Pilot...")
-    rep = execute_acceptance_pilot(projects_dir=args.projects_dir)
+    rep = execute_acceptance_pilot(projects_dir=args.projects_dir, live=bool(args.live))
     print(
         f"Pilot completed: {rep.successful_businesses}/{rep.total_businesses} succeeded "
         f"in {rep.total_duration_seconds:.2f}s."

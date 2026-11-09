@@ -35,6 +35,9 @@ COCKPIT_BASE_URL = os.environ.get("COCKPIT_BASE_URL", "http://127.0.0.1:8888").r
 def connect() -> sqlite3.Connection:
     DB.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB, timeout=10)
+    con.execute("PRAGMA journal_mode=WAL;")
+    con.execute("PRAGMA synchronous=NORMAL;")
+    con.execute("PRAGMA busy_timeout=5000;")
     con.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
     return con
 

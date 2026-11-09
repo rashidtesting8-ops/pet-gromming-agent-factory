@@ -302,6 +302,38 @@ def get_job_run(conn: sqlite3.Connection, run_id: str) -> JobRunRecord | None:
     )
 
 
+def mark_running_jobs_interrupted(
+    conn: sqlite3.Connection,
+    project_id: str | None = None,
+) -> int:
+    """Mark any job_runs left in 'running' state from a crashed earlier run as 'interrupted'."""
+    with immediate_transaction(conn):
+        now_str = _utc_now().isoformat()
+        if project_id:
+            cursor = conn.execute(
+                """
+                UPDATE job_runs
+                SET status = 'interrupted',
+                    error_message = COALESCE(error_message, 'Interrupted by prior crashed run'),
+                    updated_at = ?
+                WHERE status = 'running' AND project_id = ?
+                """,
+                (now_str, project_id),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                UPDATE job_runs
+                SET status = 'interrupted',
+                    error_message = COALESCE(error_message, 'Interrupted by prior crashed run'),
+                    updated_at = ?
+                WHERE status = 'running'
+                """,
+                (now_str,),
+            )
+        return cursor.rowcount
+
+
 def upsert_asset_provenance(
     conn: sqlite3.Connection,
     record: AssetProvenanceRecord,
