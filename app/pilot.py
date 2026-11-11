@@ -744,10 +744,13 @@ def run_single_pilot_business(
     critique_res = run_critique_revision_loop(project_root, max_iterations=2)
     _execute_qa_pass()
 
-    # 11. Approve & Freeze Release
+    # 11. Approve & Freeze Release (auto-increment version if v1 already exists)
+    next_ver_num = 1
+    while (project_root / "versions" / f"v{next_ver_num}").exists():
+        next_ver_num += 1
     manifest_sha = approve_release(
         project_root,
-        version="v1",
+        version=f"v{next_ver_num}",
         operator_name="Milestone 5 Pilot Lead",
         notes=f"Pilot validation for {spec.archetype_label}",
         projects_dir=p_dir,

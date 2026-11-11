@@ -1,39 +1,40 @@
-name: CI
+name: EditVista CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feat/**"]
   pull_request:
     branches: ["main"]
 
 jobs:
-  check:
-    name: Lint, Typecheck & Test (Python 3.12)
+  lint-typecheck-and-test:
+    name: Ruff, Pyright & Pytest (Python 3.12)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
 
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies (including browser extra)
-        run: uv sync --frozen --dev --extra browser
+      - name: Sync dependencies
+        run: uv sync --frozen
 
-      - name: Install Playwright Chromium browser
+      - name: Install Playwright Chromium for 5-viewport QA tests
         run: uv run playwright install --with-deps chromium
 
       - name: Run Ruff linter
         run: uv run ruff check .
 
-      - name: Run Pyright typechecker
+      - name: Run Pyright static type checker
         run: uv run pyright
 
-      - name: Run Pytest suite
-        run: uv run pytest -v
-
+      - name: Run full Pytest suite
+        run: uv run pytest -q
