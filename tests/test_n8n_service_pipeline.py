@@ -219,3 +219,39 @@ def test_service_sqlite_connection_enforces_wal_and_busy_timeout(
     assert journal_mode == "wal"
     assert busy_timeout >= 5000
 
+
+def test_dockerfile_compose_and_requirements_completeness() -> None:
+    """Verify requirements.txt, Dockerfile, and docker-compose.yml are complete and aligned."""
+    root = Path(__file__).resolve().parent.parent
+    req_text = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+    for pkg in (
+        "beautifulsoup4",
+        "requests",
+        "pillow",
+        "fastapi",
+        "uvicorn",
+        "pydantic",
+        "phonenumbers",
+        "playwright",
+        "gallery-dl",
+    ):
+        assert pkg in req_text, f"Missing '{pkg}' in requirements.txt"
+
+    dockerfile_text = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert "playwright install --with-deps chromium" in dockerfile_text
+    assert "HEALTHCHECK" in dockerfile_text
+
+    compose_text = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    for required_token in (
+        "n8n:",
+        "collector:",
+        "cockpit:",
+        "127.0.0.1:5678:5678",
+        "127.0.0.1:8787:8787",
+        "127.0.0.1:8888:8888",
+        "healthcheck:",
+        "mem_limit:",
+    ):
+        assert required_token in compose_text, f"Missing '{required_token}' in docker-compose.yml"
+
+

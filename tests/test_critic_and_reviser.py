@@ -293,3 +293,62 @@ def test_reviser_hard_caps_loop_at_3_iterations_and_escalates_to_review_needed(
     assert call_count == 3
     assert loop_result.final_status == "review_needed"
     assert loop_result.escalated_to_human is True
+
+
+def test_visual_critic_inspects_mobile_390px_and_desktop_1440px_screenshots(
+    tmp_path: Path,
+) -> None:
+    """Visual Critic must inspect both desktop (1440px) and mobile (390px/360px) screenshots
+    for contrast defects and pass both desktop and mobile viewports to the Vision LLM.
+    """
+    project_root = tmp_path / "projects" / "mobile-critic-test"
+    (project_root / "website" / "css").mkdir(parents=True, exist_ok=True)
+    (project_root / "design").mkdir(parents=True, exist_ok=True)
+    shots_dir = project_root / "qa" / "screenshots"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_html = """<!DOCTYPE html>
+<html lang="en"><body><main>
+  <section id="hero" class="ev-hero">
+    <h1 class="ev-hero-title">Mobile Test</h1>
+    <a class="cta btn" href="#contact">Call Now</a>
+    <img src="../assets/optimized/hero.jpg" style="object-position: 50% 28%;">
+  </section>
+</main></body></html>"""
+    (project_root / "website" / "index.html").write_text(clean_html, encoding="utf-8")
+    (project_root / "website" / "css" / "styles.css").write_text(
+        ":root { --ev-primary: #1B365D; }\n", encoding="utf-8"
+    )
+
+    # Desktop viewports have high contrast, but mobile 390px has low contrast
+    _create_screenshot(shots_dir / "1440px.png", width=1440, low_contrast_hero=False)
+    _create_screenshot(shots_dir / "1024px.png", width=1024, low_contrast_hero=False)
+    _create_screenshot(shots_dir / "768px.png", width=768, low_contrast_hero=False)
+    _create_screenshot(shots_dir / "390px.png", width=390, low_contrast_hero=True)
+    _create_screenshot(shots_dir / "360px.png", width=360, low_contrast_hero=False)
+
+    sent_images: list[str] = []
+
+    class _SpyAdapter:
+        def complete(self, **kwargs: object) -> object:
+            imgs = kwargs.get("images") or []
+            if isinstance(imgs, list):
+                sent_images.extend(Path(p).name for p in imgs)
+
+            class _Resp:
+                content = '{"status": "passed", "defects": []}'
+
+            return _Resp()
+
+    report = run_visual_critic(project_root, llm_adapter=_SpyAdapter())
+
+    # 1. Must send both desktop (1440px) and mobile (390px or 360px) to the Vision LLM
+    assert "1440px.png" in sent_images
+    assert any(m in sent_images for m in ("390px.png", "360px.png")), (
+        f"Expected mobile screenshot in LLM images, got {sent_images}"
+    )
+
+    # 2. Must detect the low-contrast hero defect on mobile 390px.png
+    assert report.status == "defects_found"
+    assert any("390px.png" in d.screenshot_path for d in report.defects)
+

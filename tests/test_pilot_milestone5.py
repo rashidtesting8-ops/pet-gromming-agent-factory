@@ -209,3 +209,23 @@ def test_pilot_cli_accepts_live_flag_and_wires_live_qa_runner(
     assert exit_code == 0
     assert called_live["count"] >= 2
 
+
+def test_single_pilot_executes_real_html_fact_extraction_and_curator(tmp_path: Path) -> None:
+    """Pilot runner must synthesize HTML snapshots, run extract_business_facts + curator,
+    and write rights-audit.jsonl signatures rather than bypassing pipeline stages.
+    """
+    projects_dir = tmp_path / "projects"
+    projects_dir.mkdir(parents=True)
+
+    spec = PILOT_BUSINESS_SPECS[0]
+    run_single_pilot_business(spec, projects_dir=projects_dir, qa_runner=_mock_qa_runner)
+
+    project_root = projects_dir / spec.slug
+    assert (project_root / "research/pages.json").is_file()
+    assert list((project_root / "research/snapshots").glob("*.html"))
+    assert (project_root / "research/rights-audit.jsonl").is_file()
+    sel_path = project_root / "design/image-selection.json"
+    sel_data = json.loads(sel_path.read_text(encoding="utf-8"))
+    assert "curated_at" in sel_data
+
+

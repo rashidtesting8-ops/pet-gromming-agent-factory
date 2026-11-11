@@ -847,6 +847,8 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     policy: str | None = None
     verified_prices: list[tuple[str, str]] = []
     verified_services: list[str] = []
+    verified_equipment: list[str] = []
+    verified_radius: list[str] = []
     has_unverified_pricing = False
 
     for fact in facts_list:
@@ -877,6 +879,10 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             hours = claim_val
         elif category in ("cancellation_policy", "policy") and policy is None:
             policy = claim_val
+        elif category == "equipment" and claim_val and claim_val not in verified_equipment:
+            verified_equipment.append(claim_val)
+        elif category == "service_radius" and claim_val and claim_val not in verified_radius:
+            verified_radius.append(claim_val)
         elif (
             category in ("services", "canine_services", "feline_services")
             and claim_val not in verified_services
@@ -931,30 +937,26 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     serves_dogs = bool(tax_obj.get("serves_dogs", True))
     serves_cats = bool(tax_obj.get("serves_cats", False))
 
+    verified_pill_candidates: list[str] = []
+    for item in [*verified_services[:2], *verified_equipment[:1], *verified_radius[:1]]:
+        if item and item not in verified_pill_candidates:
+            verified_pill_candidates.append(item)
+
     if is_mobile:
         archetype = "mobile"
         eyebrow_text = "Private Driveway Mobile Grooming Studio"
-        trust_pills = (
-            '<span class="ev-trust-pill">100% Self-Contained Heated Hydro-Bath Van</span>'
-            '<span class="ev-trust-pill">1-on-1 Cage-Free Driveway Care</span>'
-            '<span class="ev-trust-pill">Zero Kennel Wait Times</span>'
-        )
+        default_pills = ["Mobile Driveway Grooming", "Direct Appointment Booking"]
     elif serves_dogs and serves_cats:
         archetype = "multi-species"
-        eyebrow_text = "Bespoke Canine &amp; Feline Luxury Spa"
-        trust_pills = (
-            '<span class="ev-trust-pill">Segregated Canine &amp; Feline Suites</span>'
-            '<span class="ev-trust-pill">Botanical Coat Conditioning</span>'
-            '<span class="ev-trust-pill">Tranquil Low-Stress Handling</span>'
-        )
+        eyebrow_text = "Bespoke Canine &amp; Feline Grooming Studio"
+        default_pills = ["Canine &amp; Feline Grooming", "Individual Coat Care"]
     else:
         archetype = "salon"
-        eyebrow_text = "Artisanal Pet Grooming &amp; Botanical Spa"
-        trust_pills = (
-            '<span class="ev-trust-pill">Breed-Standard Hand Scissoring</span>'
-            '<span class="ev-trust-pill">Skin-Safe Botanical Hydro-Baths</span>'
-            '<span class="ev-trust-pill">Unhurried 1-on-1 Appointments</span>'
-        )
+        eyebrow_text = "Bespoke Pet Grooming Studio"
+        default_pills = ["Professional Coat Styling", "Unhurried 1-on-1 Appointments"]
+
+    pill_items = [html.escape(p) for p in verified_pill_candidates[:3]] or default_pills
+    trust_pills = "".join(f'<span class="ev-trust-pill">{p}</span>' for p in pill_items)
 
     raw_headline = str(brief_data.get("editorial_headline") or "").strip()
     if not raw_headline:
@@ -994,35 +996,61 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             "</div>"
         )
 
-    # Archetype-specific feature banner inside Services section
+    # Archetype-specific feature banner inside Services section (strictly from verified facts)
     archetype_showcase_html = ""
     if archetype == "mobile":
+        mobile_bullets = [
+            html.escape(b)
+            for b in [*verified_equipment, *verified_radius, *verified_services[:2]]
+            if b
+        ]
+        if not mobile_bullets:
+            mobile_bullets = [
+                "Driveway Mobile Grooming Service",
+                f"Direct Phone Scheduling: {html.escape(phone)}" if phone else "Direct Scheduling",
+            ]
+        li_markup = "".join(f"    <li>{b}</li>\n" for b in mobile_bullets[:3])
         archetype_showcase_html = (
             '<div class="ev-van-showcase">\n'
-            '  <h3>Self-Contained Mobile Grooming Van — Driveway Convenience</h3>\n'
-            '  <p>Our climate-controlled luxury grooming van arrives directly at your home '
-            'with independent warm freshwater tanks, quiet power, and sanitised tools.</p>\n'
+            f'  <h3>Mobile Grooming Van — Driveway Convenience by {esc_name}</h3>\n'
+            '  <p>Professional mobile pet grooming delivered directly to your address.</p>\n'
             '  <ul class="ev-van-features">\n'
-            '    <li>Heated Hydro-Bath &amp; Filtered Water</li>\n'
-            '    <li>1-on-1 Cage-Free Appointment</li>\n'
-            '    <li>Full Local Service Radius Coverage</li>\n'
+            f"{li_markup}"
             '  </ul>\n'
             '</div>\n'
         )
     elif archetype == "multi-species":
+        dog_svcs = [
+            html.escape(s)
+            for s in verified_services
+            if any(k in s.lower() for k in ("dog", "canine", "pup", "hound"))
+        ]
+        cat_svcs = [
+            html.escape(s)
+            for s in verified_services
+            if any(k in s.lower() for k in ("cat", "feline", "kitten"))
+        ]
+        dog_desc = (
+            ", ".join(dog_svcs)
+            if dog_svcs
+            else "Dedicated canine grooming and coat care tailored to your dog."
+        )
+        cat_desc = (
+            ", ".join(cat_svcs)
+            if cat_svcs
+            else "Dedicated feline grooming and coat care tailored to your cat."
+        )
         archetype_showcase_html = (
             '<div class="ev-species-showcase">\n'
             '  <div class="ev-species-card" data-species-tab="dogs">\n'
             '    <span class="ev-species-badge">Canine Atelier</span>\n'
-            '    <h3 class="ev-card-title">Signature Canine Spa &amp; Styling</h3>\n'
-            '    <p>Breed-standard hand scissoring, warm hydro-massage baths, and gentle '
-            'undercoat de-shedding tailored to dogs of every coat type.</p>\n'
+            '    <h3 class="ev-card-title">Signature Canine Grooming</h3>\n'
+            f'    <p>{dog_desc}</p>\n'
             '  </div>\n'
             '  <div class="ev-species-card" data-species-tab="cats">\n'
             '    <span class="ev-species-badge">Feline Sanctuary</span>\n'
-            '    <h3 class="ev-card-title">Quiet Feline Grooming Suite</h3>\n'
-            '    <p>Dedicated dog-free acoustic suites for plush feline comb-outs, '
-            'sanitary trims, lion cuts, and stress-free claw care.</p>\n'
+            '    <h3 class="ev-card-title">Quiet Feline Grooming</h3>\n'
+            f'    <p>{cat_desc}</p>\n'
             '  </div>\n'
             '</div>\n'
         )
@@ -1206,7 +1234,7 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
         '    <span class="ev-eyebrow">Curated Grooming Menu</span>\n'
         '    <h2 class="ev-section-title">Grooming Services &amp; Pricing</h2>\n'
         '    <p class="ev-section-lead">'
-        'Every session uses verified coat-safe botanicals and calm, individual attention.</p>\n'
+        'Verified grooming services and individual attention tailored to your companion.</p>\n'
         '  </div>\n'
         f'  {pricing_section_html}\n'
         "</section>"

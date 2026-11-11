@@ -419,10 +419,56 @@ def test_get_default_adapter_selects_groq_when_configured(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "gsk-active-free-key")
 
     adapter = get_default_adapter()
     assert isinstance(adapter.provider, GroqProvider)
     assert adapter.provider.api_key == "gsk-active-free-key"
+
+
+def test_openrouter_provider_and_default_adapter_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouterProvider connects to openrouter.ai when OPENROUTER_API_KEY is set."""
+    import requests
+
+    from engine.llm.adapter import OpenRouterProvider, get_default_adapter
+
+    observed_requests: list[dict[str, Any]] = []
+
+    class MockResponse:
+        status_code = 200
+        ok = True
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "choices": [{"message": {"content": "OpenRouter multimodal response"}}],
+                "usage": {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45},
+            }
+
+    def fake_post(url: str, **kwargs: Any) -> MockResponse:
+        observed_requests.append({"url": url, **kwargs})
+        return MockResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-mock-openrouter-key-12345")
+
+    adapter = get_default_adapter()
+    assert isinstance(adapter.provider, OpenRouterProvider)
+
+    res = adapter.provider.complete("Critique salon layout", model="google/gemini-2.0-flash-001")
+    assert res.content == "OpenRouter multimodal response"
+    assert res.total_tokens == 45
+    assert observed_requests[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert (
+        observed_requests[0]["headers"]["Authorization"]
+        == "Bearer sk-or-v1-mock-openrouter-key-12345"
+    )
+
 
 

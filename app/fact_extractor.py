@@ -1129,28 +1129,41 @@ def _detect_conflicts_and_resolve_statuses(
         if len(cat_facts) < 2:
             continue
 
-        # Group facts by normalized canonical token
+        # Group facts by normalized canonical token and snapshot original values before mutation
         normalized_map: dict[str, list[ExtractedFact]] = {}
+        fact_norm_map: dict[str, str] = {}
+        original_claim_values: dict[str, str] = {}
         for f in cat_facts:
+            original_claim_values[f.fact_id] = f.claim_value
             norm = re.sub(r"[^\w\d]", "", f.claim_value.lower())
             if cat == "phone" and len(norm) >= 9:
                 norm = norm[-9:]
+            fact_norm_map[f.fact_id] = norm
             normalized_map.setdefault(norm, []).append(f)
 
         # If >= 2 distinct normalized values exist, a conflict is present
         if len(normalized_map) >= 2:
-            all_cat_fact_ids = [f.fact_id for f in cat_facts]
             for f in cat_facts:
+                f_norm = fact_norm_map[f.fact_id]
+                f_orig = original_claim_values[f.fact_id]
                 f.is_verified = False
                 f.status = "needs_review"
-                f.conflicts_with = [fid for fid in all_cat_fact_ids if fid != f.fact_id]
-                competing_vals = [
-                    other.claim_value
+                f.conflicts_with = [
+                    other.fact_id
                     for other in cat_facts
-                    if other.fact_id != f.fact_id and other.claim_value != f.claim_value
+                    if other.fact_id != f.fact_id and fact_norm_map[other.fact_id] != f_norm
                 ]
-                if competing_vals and "conflicts with" not in f.claim_value:
-                    f.claim_value = f"{f.claim_value} (conflicts with {', '.join(competing_vals)})"
+                competing_vals: list[str] = []
+                for other in cat_facts:
+                    other_orig = original_claim_values[other.fact_id]
+                    if (
+                        other.fact_id != f.fact_id
+                        and fact_norm_map[other.fact_id] != f_norm
+                        and other_orig not in competing_vals
+                    ):
+                        competing_vals.append(other_orig)
+                if competing_vals and "conflicts with" not in f_orig:
+                    f.claim_value = f"{f_orig} (conflicts with {', '.join(competing_vals)})"
 
     return facts
 

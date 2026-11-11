@@ -369,6 +369,57 @@ class GroqProvider(OpenAIProvider):
         )
 
 
+class OpenRouterProvider(OpenAIProvider):
+    """OpenRouter provider using OpenAI-compatible Chat Completions API."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        default_model: str | None = None,
+        timeout_seconds: float = 60.0,
+        base_url: str = "https://openrouter.ai/api/v1/chat/completions",
+    ) -> None:
+        key = api_key or get_env_api_key("OPENROUTER_API_KEY")
+        chosen_model = default_model or os.environ.get(
+            "OPENROUTER_MODEL", "google/gemini-2.0-flash-001"
+        )
+        super().__init__(api_key=key, default_model=chosen_model, timeout_seconds=timeout_seconds)
+        self.base_url = base_url
+
+    def complete(
+        self,
+        prompt: str,
+        images: Sequence[bytes | Path] = (),
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if not self.api_key:
+            raise RuntimeError("Missing OPENROUTER_API_KEY environment variable")
+        active_model = model or self.default_model
+        payload = self._build_request_payload(prompt, images=images, model=active_model, **kwargs)
+        resp = requests.post(
+            self.base_url,
+            headers=self._build_headers(),
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"OpenRouter API error ({resp.status_code}): {resp.text}")
+        data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        text = choice.get("message", {}).get("content", "")
+        usage = data.get("usage", {})
+        p_tokens = int(usage.get("prompt_tokens", 0))
+        c_tokens = int(usage.get("completion_tokens", 0))
+        return LLMResponse(
+            content=text,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=p_tokens + c_tokens,
+            model=active_model,
+        )
+
+
 class GeminiProvider:
     """Google Gemini provider implementation using REST generateContent endpoint."""
 
@@ -973,4 +1024,6 @@ def get_default_adapter(
         return LLMAdapter(GeminiProvider(), config=cfg)
     if get_env_api_key("GROQ_API_KEY"):
         return LLMAdapter(GroqProvider(), config=cfg)
+    if get_env_api_key("OPENROUTER_API_KEY"):
+        return LLMAdapter(OpenRouterProvider(), config=cfg)
     return LLMAdapter(FakeProvider(), config=cfg)

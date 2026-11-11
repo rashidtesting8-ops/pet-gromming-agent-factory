@@ -626,40 +626,67 @@ def run_single_pilot_business(
         json.dumps(asset_manifest, indent=2),
     )
 
-    # 4. Seed verified facts
-    facts_payload = {
-        "project_id": spec.slug,
-        "extracted_at": _utc_now().isoformat(),
-        "facts": spec.facts,
-    }
-    _atomic_write_text(
-        project_root / "research/business-facts.json",
-        json.dumps(facts_payload, indent=2),
+    from app.curator import curate_project_images
+    from app.fact_extractor import CandidateClaim, extract_business_facts
+    from app.rights import confirm_asset_rights
+
+    confirm_asset_rights(
+        project_root,
+        all_assets=True,
+        basis="client_provided",
+        operator="Milestone 5 Pilot Lead",
+        evidence=f"Pilot rights confirmation for {spec.business_name}",
+        projects_dir=p_dir,
+        db_path=db_path,
     )
 
-    image_selection = {
-        "hero_image": {
-            "filename": hero_filename,
-            "relative_path": f"assets/optimized/{hero_filename}" if hero_filename else None,
-            "object_position": "50% 35%",
-        },
-        "grooming_gallery": [
-            {
-                "filename": fn,
-                "relative_path": f"assets/optimized/{fn}",
-                "object_position": "50% 35%",
-            }
-            for fn in gallery_filenames
-        ],
-        "salon_facility_or_van": {
-            "filename": facility_filename,
-            "relative_path": f"assets/optimized/{facility_filename}" if facility_filename else None,
-        },
-    }
-    _atomic_write_text(
-        project_root / "design/image-selection.json",
-        json.dumps(image_selection, indent=2),
+    # 4. Write crawled HTML snapshot + pages.json and execute real fact extractor + curator
+    snaps_dir = project_root / "research/snapshots"
+    snaps_dir.mkdir(parents=True, exist_ok=True)
+    snippets_html = "\n".join(
+        f"<p>{f.get('source_text_snippet', f.get('claim_value', ''))}</p>" for f in spec.facts
     )
+    snap_doc = (
+        f"<!DOCTYPE html><html><head><title>{spec.business_name}</title></head>"
+        f"<body><h1>{spec.business_name}</h1>{snippets_html}</body></html>"
+    )
+    snap_sha = hashlib.sha256(snap_doc.encode("utf-8")).hexdigest()
+    _atomic_write_text(snaps_dir / f"{snap_sha}.html", snap_doc)
+    pages_manifest = [
+        {
+            "url": spec.primary_url,
+            "sha256": snap_sha,
+            "title": spec.business_name,
+            "text": " ".join(
+                str(f.get("source_text_snippet", f.get("claim_value", ""))) for f in spec.facts
+            ),
+        }
+    ]
+    _atomic_write_text(
+        project_root / "research/pages.json",
+        json.dumps(pages_manifest, indent=2),
+    )
+
+    seed_claims = [
+        CandidateClaim(
+            category=str(f.get("category", "general")),
+            claim_key=str(f.get("claim_key", "claim")),
+            claim_value=str(f.get("claim_value", "")),
+            source_url=str(f.get("source_url", spec.primary_url)),
+            source_text_snippet=str(f.get("source_text_snippet", f.get("claim_value", ""))),
+            source_kind="manual",
+            expected_status="verified" if f.get("is_verified") else "needs_review",
+            is_verified=bool(f.get("is_verified", False)),
+        )
+        for f in spec.facts
+    ]
+    extract_business_facts(
+        project_root,
+        candidate_claims=seed_claims,
+        extract_classification=False,
+    )
+
+    curate_project_images(project_root)
 
     # 5. Art Direction & Taxonomy
     _brand, brief = generate_art_direction(project_root, provenance_records=provenance_records)

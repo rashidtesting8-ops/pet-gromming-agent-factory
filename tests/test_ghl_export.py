@@ -140,3 +140,17 @@ def test_export_ghl_refuses_when_only_website_exists_without_delivery(tmp_path: 
     with pytest.raises(ValueError, match="delivery"):
         export_ghl_snippet(project)
 
+
+def test_scope_css_preserves_semicolons_inside_quoted_data_uris() -> None:
+    """scope_css must not split CSS declarations on semicolons inside quoted url('data:...')."""
+    from app.ghl_exporter import scope_css
+
+    raw_css = (
+        '.hero-icon { background-image: url("data:image/svg+xml;utf8,<svg></svg>"); '
+        "color: #1B365D; }"
+    )
+    scoped = scope_css(raw_css, "#ev-ghl-root")
+    assert 'url("data:image/svg+xml;utf8,<svg></svg>")' in scoped
+    assert "data:image/svg+xml; utf8," not in scoped
+
+

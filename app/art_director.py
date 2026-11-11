@@ -291,36 +291,36 @@ def _synthesize_editorial_copy(
     taxonomy: BusinessTaxonomy,
     wireframe: WireframeStructure,
 ) -> tuple[str, str, str, list[str]]:
-    """Synthesize deterministic luxury editorial copy tailored to the business archetype."""
+    """Synthesize deterministic luxury editorial copy without fabricating unverified claims."""
     if taxonomy.is_mobile_groomer:
-        headline = f"{business_name} — Private Driveway Spa and Mobile Grooming"
+        headline = f"{business_name} — Private Driveway Mobile Grooming"
         tagline = (
-            "One-on-one, cage-free luxury grooming delivered directly to your doorstep "
-            "in our self-contained heated hydro-bath mobile studio."
+            "Dedicated mobile pet grooming delivered directly to your doorstep "
+            "with attentive, individual care."
         )
         value_prop = (
-            "Zero kennel wait times, climate-controlled mobile sanitation, and "
-            "dedicated individual attention for stress-free coat care."
+            "Convenient driveway appointments and professional coat care "
+            "tailored to your companion."
         )
     elif taxonomy.serves_dogs and taxonomy.serves_cats:
-        headline = f"{business_name} — Bespoke Canine and Feline Grooming Atelier"
+        headline = f"{business_name} — Bespoke Canine and Feline Grooming Studio"
         tagline = (
-            "Species-segregated, tranquil spa suites crafted for discerning dogs and cats "
-            "with holistic coat conditioning and breed-standard scissoring."
+            "Thoughtful grooming care crafted for discerning dogs and cats "
+            "with attentive styling."
         )
         value_prop = (
-            "Dedicated feline quiet hours and signature canine hydro-massage baths "
-            "designed around your companion comfort and coat health."
+            "Dedicated canine and feline grooming appointments "
+            "designed around your companion's comfort."
         )
     else:
-        headline = f"{business_name} — Bespoke Coat Styling and Luxury Pet Spa"
+        headline = f"{business_name} — Bespoke Coat Styling and Pet Grooming Studio"
         tagline = (
-            "Artisanal hand-scissoring, botanical hydro-baths, and calm one-on-one "
-            "grooming tailored to every breed and coat temperament."
+            "Compassionate, attentive pet grooming tailored to every breed "
+            "and coat."
         )
         value_prop = (
-            "Unhurried salon appointments, skin-safe botanical formulations, and "
-            "meticulous finishing by dedicated pet stylists."
+            "Unhurried salon appointments and meticulous finishing "
+            "by dedicated pet stylists."
         )
     return headline, tagline, value_prop, list(wireframe.ordered_sections)
 

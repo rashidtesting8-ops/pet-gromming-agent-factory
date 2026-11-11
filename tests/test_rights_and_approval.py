@@ -401,3 +401,28 @@ def test_acknowledge_open_issues_stored_in_release_manifest(tmp_path: Path) -> N
     assert len(manifest_json["acknowledged_issues"]) >= 1
     assert any("Heading contrast" in str(issue) for issue in manifest_json["acknowledged_issues"])
 
+
+def test_manifest_override_without_audit_trail_blocks_approval(tmp_path: Path) -> None:
+    """Manually flipping asset-manifest.json to True without rights-audit.jsonl must block."""
+    project_root = _scaffold_project_for_rights(tmp_path, "bypass-attempt-salon")
+    db_path = tmp_path / "editvista.sqlite3"
+
+    # Manually flip asset-manifest.json to rights_confirmed_for_preview=True WITHOUT confirm-rights
+    manifest_path = project_root / "research" / "asset-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[0]["rights_confirmed_for_preview"] = True
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    assert not (project_root / "research" / "rights-audit.jsonl").exists()
+
+    with pytest.raises(ReleaseApprovalGateError, match="audit|rights-audit"):
+        approve_release(
+            project_root,
+            operator_name="Alice Smith",
+            notes="Attempt bypass without audit log",
+            version="v1",
+            projects_dir=tmp_path,
+            db_path=db_path,
+        )
+
+

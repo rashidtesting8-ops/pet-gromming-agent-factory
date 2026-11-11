@@ -10,13 +10,14 @@ strictly deduplicated section assignments to `projects/<business-id>/design/imag
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from PIL import Image, ImageFilter, ImageStat
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -264,6 +265,7 @@ def curate_project_images(
     project_folder: str | Path,
     *,
     lvm_adapter: LVMAdapter | None = None,
+    llm_adapter: Any = None,
 ) -> ImageSelectionReport:
     """Scan optimized assets and contact sheet, evaluate candidates, and save selection JSON."""
     project_root = Path(project_folder).resolve()
@@ -271,7 +273,14 @@ def curate_project_images(
     adapter = lvm_adapter or default_lvm_heuristic_adapter
 
     optimized_dir = project_root / "assets" / "optimized"
-    contact_sheet_file = project_root / "assets" / "thumbnails" / "contact-sheet.jpg"
+    contact_sheet_candidates = [
+        project_root / "assets" / "thumbnails" / "contact-sheet.jpg",
+        project_root / "research" / "contact-sheet.jpg",
+    ]
+    contact_sheet_file = next(
+        (p for p in contact_sheet_candidates if p.is_file()),
+        contact_sheet_candidates[0],
+    )
 
     contact_sheet_inspected = False
     contact_sheet_rel: str | None = None
@@ -288,6 +297,44 @@ def curate_project_images(
             for p in optimized_dir.iterdir()
             if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
         )
+
+    llm_hero_override: str | None = None
+    llm_facility_override: str | None = None
+    llm_excluded_names: set[str] = set()
+    if llm_adapter is not None and image_files:
+        curation_images: list[Path] = []
+        if contact_sheet_file.is_file():
+            curation_images.append(contact_sheet_file)
+        curation_images.extend(image_files[:2])
+        cand_list_str = ", ".join(p.name for p in image_files)
+        try:
+            resp = llm_adapter.complete(
+                prompt=(
+                    f"Project: {project_id}\n"
+                    f"Candidate files: {cand_list_str}\n"
+                    "Inspect the contact sheet and candidate pet grooming photos. "
+                    "Return JSON with hero_filename, facility_filename, and excluded_filenames "
+                    "(any image with baked-in promotional text or extreme blur)."
+                ),
+                system_prompt=(
+                    "You are a visual photo curator for luxury pet grooming websites. "
+                    "Output JSON only."
+                ),
+                images=curation_images,
+                project_id=project_id,
+                stage="curator",
+                response_schema="image_curation_v1",
+                temperature=0.1,
+            )
+            llm_data = json.loads(resp.content)
+            if isinstance(llm_data.get("hero_filename"), str):
+                llm_hero_override = llm_data["hero_filename"].strip()
+            if isinstance(llm_data.get("facility_filename"), str):
+                llm_facility_override = llm_data["facility_filename"].strip()
+            if isinstance(llm_data.get("excluded_filenames"), list):
+                llm_excluded_names = {str(x).strip() for x in llm_data["excluded_filenames"]}
+        except Exception:
+            pass
 
     valid_candidates: list[tuple[CuratedImageCandidate, RoleHint]] = []
     excluded: list[ExcludedImageRecord] = []
@@ -309,7 +356,7 @@ def curate_project_images(
 
         if sha256 in seen_sha256:
             failure_reasons.append("duplicate_sha256: identical image content already evaluated")
-        if obs.has_embedded_text:
+        if obs.has_embedded_text or img_path.name in llm_excluded_names:
             failure_reasons.append(
                 "embedded_text_or_promotional_banner: baked-in text or discount graphic detected"
             )
@@ -363,7 +410,12 @@ def curate_project_images(
             object_position=obj_pos,
             rank_score=rank_score,
         )
-        valid_candidates.append((candidate, obs.role_hint))
+        effective_hint: RoleHint = obs.role_hint
+        if llm_facility_override and img_path.name == llm_facility_override:
+            effective_hint = "facility_or_van"
+        elif llm_hero_override and img_path.name == llm_hero_override:
+            effective_hint = "hero"
+        valid_candidates.append((candidate, effective_hint))
 
     # Strict deduplication across sections: each filename / sha256 can only be assigned once
     assigned_filenames: set[str] = set()
@@ -373,7 +425,10 @@ def curate_project_images(
     facility_candidate: CuratedImageCandidate | None = None
     facility_pool = sorted(
         (c for c, hint in valid_candidates if hint == "facility_or_van"),
-        key=lambda item: item.rank_score,
+        key=lambda item: (
+            1 if (llm_facility_override and item.filename == llm_facility_override) else 0,
+            item.rank_score,
+        ),
         reverse=True,
     )
     if facility_pool:
@@ -389,9 +444,10 @@ def curate_project_images(
             if c.filename not in assigned_filenames
             and not c.low_res_for_hero
             and not c.has_embedded_text
-            and c.pet_visible
+            and (c.pet_visible or (llm_hero_override and c.filename == llm_hero_override))
         ),
         key=lambda item: (
+            1 if (llm_hero_override and item.filename == llm_hero_override) else 0,
             1 if "hero" in item.filename.lower() else 0,
             item.rank_score,
         ),

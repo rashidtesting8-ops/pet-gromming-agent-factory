@@ -373,15 +373,34 @@ def approve_release(
         )
 
     # 3b. Refuse if each used asset has no matching audit entry for its CURRENT sha256
+    from app.db import list_assets_for_project
     from app.rights import check_used_assets_audit_signatures
 
     used_assets = extract_used_assets(candidate_html.read_text(encoding="utf-8"))
     audit_file = project_root / "research" / "rights-audit.jsonl"
+    resolved_db_check = (
+        Path(db_path).resolve()
+        if db_path is not None
+        else (Path(projects_dir).resolve() / "editvista.sqlite3")
+    )
+    has_unconfirmed_db_assets = False
+    if resolved_db_check.is_file():
+        conn_check = connect_db(resolved_db_check)
+        try:
+            init_db(conn_check)
+            has_unconfirmed_db_assets = any(
+                not r.asset_id.startswith(f"{project_root.name}-asset-")
+                and not r.rights_confirmed_for_preview
+                for r in list_assets_for_project(conn_check, project_root.name)
+            )
+        finally:
+            conn_check.close()
+
     audit_violations = check_used_assets_audit_signatures(project_root, used_assets)
-    if audit_file.is_file() and audit_violations:
+    if (audit_file.is_file() or has_unconfirmed_db_assets) and audit_violations:
         raise ReleaseApprovalGateError(
-            f"Release blocked: used asset has no matching audit entry for its CURRENT sha256: "
-            f"{audit_violations}"
+            f"Release blocked: used asset has no matching audit entry in rights-audit.jsonl "
+            f"for its CURRENT sha256: {audit_violations}"
         )
 
     # 3c. Refuse if open visual defects or unverified facts are present unless acknowledged

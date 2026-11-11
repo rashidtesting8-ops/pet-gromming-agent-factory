@@ -167,6 +167,24 @@
       }
     }
 
+    async function verifyFact(claimKey, verified) {
+      try {
+        const res = await fetch('/api/projects/{{PID}}/verify-fact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ claim_key: claimKey, verified: verified })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Failed to update fact: ' + (err.detail || 'Unknown error'));
+        } else {
+          window.location.reload();
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    }
+
     async function approveRelease() {
       const operator = prompt('Enter Operator Name for Immutable Manifest:', 'Senior Operator');
       if (!operator) return;

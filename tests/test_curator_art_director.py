@@ -329,3 +329,45 @@ def test_art_director_mobile_and_cat_dog_wireframes_and_brand_colors(tmp_path: P
     assert brief_salon.wireframe.segregated_dog_cat_pricing_tabs is True
     assert "dogs" in brief_salon.wireframe.pricing_tabs
     assert "cats" in brief_salon.wireframe.pricing_tabs
+
+
+def test_curator_invokes_vision_llm_adapter_with_contact_sheet_when_provided(
+    tmp_path: Path,
+) -> None:
+    """curate_project_images must send contact-sheet.jpg to llm_adapter when provided."""
+    project_root = tmp_path / "projects" / "vision-curator-test"
+    opt_dir = project_root / "assets" / "optimized"
+    research_dir = project_root / "research"
+
+    _create_image(opt_dir / "img_a.jpg", width=1200, height=800, bg_color=(35, 75, 120))
+    _create_image(opt_dir / "img_b.jpg", width=1200, height=800, bg_color=(65, 110, 85))
+    _create_image(research_dir / "contact-sheet.jpg", width=1000, height=600)
+
+    received_images: list[str] = []
+
+    class _MockVisionLLM:
+        def complete(self, **kwargs: object) -> object:
+            imgs = kwargs.get("images") or []
+            if isinstance(imgs, list):
+                received_images.extend(Path(p).name for p in imgs)
+
+            class _Resp:
+                content = json.dumps(
+                    {
+                        "hero_filename": "img_b.jpg",
+                        "facility_filename": "img_a.jpg",
+                        "excluded_filenames": [],
+                    }
+                )
+
+            return _Resp()
+
+    selection = curate_project_images(project_root, llm_adapter=_MockVisionLLM())
+
+    assert selection.contact_sheet_inspected is True
+    assert "contact-sheet.jpg" in received_images
+    assert selection.hero_image is not None
+    assert selection.hero_image.filename == "img_b.jpg"
+    assert selection.salon_facility_or_van is not None
+    assert selection.salon_facility_or_van.filename == "img_a.jpg"
+

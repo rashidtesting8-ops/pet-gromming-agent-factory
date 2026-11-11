@@ -10,9 +10,16 @@ services:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./n8n:/data/n8n-workflows:ro
     depends_on:
-      - collector
+      collector:
+        condition: service_healthy
     mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
   collector:
     build: .
     restart: unless-stopped
@@ -25,6 +32,30 @@ services:
     shm_size: 1g
     mem_limit: 2g
     mem_reservation: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  cockpit:
+    build: .
+    command: ["python", "-m", "app.cockpit", "--host", "0.0.0.0", "--port", "8888", "--projects-dir", "/data/projects"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8888"
+    environment:
+      - PROJECTS_DIR=/data/projects
+    volumes:
+      - ./projects:/data/projects
+    depends_on:
+      collector:
+        condition: service_healthy
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 volumes:
   n8n_data:
 

@@ -269,3 +269,36 @@ def test_qa_engine_flags_overflow_404s_console_errors_and_contrast_defects(
     for width in (1440, 1024, 768, 390, 360):
         assert f"context_closed:{width}" in lifecycle_events
     assert "browser_closed" in lifecycle_events
+
+
+def test_qa_engine_loads_below_fold_lazy_images_without_false_broken_flag(
+    tmp_path: Path,
+) -> None:
+    """Real Chromium QA must resolve below-the-fold loading='lazy' images before checking."""
+    project = tmp_path / "lazy-gallery-salon"
+    (project / "website").mkdir(parents=True)
+    (project / "assets/optimized").mkdir(parents=True)
+    (project / "assets/optimized/lazy_dog.png").write_bytes(_make_png_bytes())
+    (project / "website/index.html").write_text(
+        """<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; background: #ffffff; color: #111827; }
+    .spacer { height: 2200px; }
+  </style>
+</head>
+<body>
+  <h1>Lazy Gallery Salon</h1>
+  <div class="spacer"></div>
+  <img src="../assets/optimized/lazy_dog.png" alt="Below fold pup" loading="lazy">
+</body>
+</html>""",
+        encoding="utf-8",
+    )
+
+    report = run_qa_engine(project)
+    assert report.passed is True
+    for vp in report.viewports:
+        assert vp.broken_assets == []
+

@@ -181,16 +181,22 @@ def test_conflict_detection_marks_all_candidates_needs_review(tmp_path: Path) ->
 
     phones = [f for f in report.facts if f.category == "phone"]
     assert len(phones) >= 2
-    # Both must be marked needs_review with conflicts_with populated
+    # Both must be marked needs_review with conflicts_with populated and non-nested claim_value
     for p in phones:
         assert p.status == "needs_review", "Conflicting phone must NOT be verified"
         assert len(p.conflicts_with) >= 1, "conflicts_with must list competing fact IDs"
+        assert p.claim_value.count("conflicts with") == 1, (
+            f"Nested recursive conflict string detected in: {p.claim_value}"
+        )
 
     addrs = [f for f in report.facts if f.category == "address"]
     assert len(addrs) >= 2
     for a in addrs:
         assert a.status == "needs_review", "Conflicting address must NOT be verified"
         assert len(a.conflicts_with) >= 1
+        assert a.claim_value.count("conflicts with") == 1, (
+            f"Nested recursive conflict string detected in: {a.claim_value}"
+        )
 
 
 def test_structured_weekly_hours_and_partial_week_status(tmp_path: Path) -> None:

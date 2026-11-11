@@ -209,6 +209,41 @@ def _split_top_level_css_blocks(css: str) -> list[tuple[str, str]]:
     return blocks
 
 
+def _split_css_declarations(body: str) -> list[str]:
+    """Split CSS rule declarations on semicolons outside quotes and parentheses."""
+    decls: list[str] = []
+    start = 0
+    in_quote: str | None = None
+    paren_depth = 0
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if in_quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == in_quote:
+                in_quote = None
+        else:
+            if ch in ("'", '"'):
+                in_quote = ch
+            elif ch == "(":
+                paren_depth += 1
+            elif ch == ")" and paren_depth > 0:
+                paren_depth -= 1
+            elif ch == ";" and paren_depth == 0:
+                chunk = body[start:i].strip()
+                if chunk:
+                    decls.append(chunk)
+                start = i + 1
+        i += 1
+    tail = body[start:].strip()
+    if tail:
+        decls.append(tail)
+    return decls
+
+
 def scope_css(css_text: str, root_selector: str) -> str:
     """Prefix every CSS rule selector with root_selector and move :root vars to root_selector."""
     cleaned = _CSS_COMMENT_RE.sub("", css_text)
@@ -229,9 +264,7 @@ def scope_css(css_text: str, root_selector: str) -> str:
             out.append(f"{header} {{\n  {body}\n}}")
         else:
             scoped_header = _scope_selector_list(header, root_selector)
-            declarations = "; ".join(
-                d.strip() for d in body.split(";") if d.strip()
-            )
+            declarations = "; ".join(_split_css_declarations(body))
             if declarations:
                 declarations += ";"
             out.append(f"{scoped_header} {{ {declarations} }}")

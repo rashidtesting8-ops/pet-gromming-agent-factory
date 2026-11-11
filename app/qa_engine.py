@@ -25,7 +25,29 @@ BREAKPOINTS: tuple[tuple[str, int], ...] = (
     ("Mobile Small", 360),
 )
 
-_BROWSER_INSPECTION_JS = """() => {
+_BROWSER_INSPECTION_JS = """async () => {
+    for (const img of document.images) {
+        if (img.loading === 'lazy') {
+            img.loading = 'eager';
+        }
+    }
+    await Promise.all(
+        [...document.images].map(img =>
+            (img.complete && img.naturalWidth > 0)
+                ? Promise.resolve()
+                : new Promise(resolve => {
+                      const timer = setTimeout(resolve, 3000);
+                      const done = () => { clearTimeout(timer); resolve(); };
+                      img.addEventListener('load', done, { once: true });
+                      img.addEventListener('error', done, { once: true });
+                      if (img.src) {
+                          const s = img.getAttribute('src');
+                          img.setAttribute('src', s);
+                      }
+                  })
+        )
+    );
+
     const overflow = document.documentElement.scrollWidth > window.innerWidth;
     const scrollWidth = document.documentElement.scrollWidth;
     const innerWidth = window.innerWidth;

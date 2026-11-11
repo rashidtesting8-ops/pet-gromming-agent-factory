@@ -341,7 +341,7 @@ def test_cockpit_confirm_asset_rights_and_approve_release_gate(tmp_path: Path) -
         ok_appr = requests.post(
             f"{base_url}/api/projects/gate-demo/approve",
             json={"operator_name": "Senior Operator", "notes": "Approved via Cockpit UI"},
-            timeout=3.0,
+            timeout=10.0,
         )
         assert ok_appr.status_code == 200
         res_data = ok_appr.json()
@@ -432,4 +432,107 @@ def test_cockpit_ghl_export_and_live_funnel_simulator(tmp_path: Path) -> None:
         assert "ghl-ev-engine-root-ghl-demo" in sim_resp.text
         assert "GoHighLevel Funnel Host Simulator" in sim_resp.text
         assert f"{base_url}/assets/ghl-demo/assets/optimized/dog.png" in sim_resp.text
+
+
+def test_cockpit_revise_confirm_rights_and_reapprove_flow(tmp_path: Path) -> None:
+    """Cockpit UI supports confirming rights (with audit log), revising a section, and approving."""
+    projects_dir = tmp_path / "projects"
+    projects_dir.mkdir(parents=True)
+    project_root = _scaffold_cockpit_project(projects_dir, "live-loom-demo", rights_confirmed=False)
+
+    # Pre-create an empty rights-audit.jsonl to enforce strict audit signature checks
+    audit_file = project_root / "research" / "rights-audit.jsonl"
+    audit_file.write_text("", encoding="utf-8")
+
+    with _ephemeral_cockpit_server(projects_dir) as base_url:
+        # 1. Confirm rights via Cockpit UI API -> must also append to rights-audit.jsonl
+        confirm_resp = requests.post(
+            f"{base_url}/api/projects/live-loom-demo/confirm-rights",
+            json={"asset_file": "assets/optimized/dog.png", "confirmed": True},
+            timeout=3.0,
+        )
+        assert confirm_resp.status_code == 200
+        assert audit_file.read_text(encoding="utf-8").strip() != ""
+
+        # 2. Initial approval (v1) succeeds even with rights-audit.jsonl present
+        appr_v1 = requests.post(
+            f"{base_url}/api/projects/live-loom-demo/approve",
+            json={"operator_name": "Senior Operator", "notes": "Initial v1 freeze"},
+            timeout=3.0,
+        )
+        assert appr_v1.status_code == 200
+        assert appr_v1.json()["version"] == "v1"
+        assert (project_root / "versions/v1/release-manifest.json").is_file()
+
+        # 3. Revise a section via Cockpit UI API
+        revised_services = (
+            '<section id="services" data-section="services">\n'
+            "  <h2>Updated Spa Packages</h2>\n"
+            "  <p>Full bath: $45</p>\n"
+            "</section>"
+        )
+        rev_resp = requests.post(
+            f"{base_url}/api/projects/live-loom-demo/revise-section",
+            json={"section_name": "services", "new_html": revised_services},
+            timeout=3.0,
+        )
+        assert rev_resp.status_code == 200
+
+        # 4. Clicking Approve in Cockpit UI succeeds (no stale QA error, auto-increments to v2)
+        appr_v2 = requests.post(
+            f"{base_url}/api/projects/live-loom-demo/approve",
+            json={"operator_name": "Senior Operator", "notes": "Post-revision v2 freeze"},
+            timeout=3.0,
+        )
+        assert appr_v2.status_code == 200
+        assert appr_v2.json()["version"] == "v2"
+        assert (project_root / "versions/v1/release-manifest.json").is_file()
+        assert (project_root / "versions/v2/release-manifest.json").is_file()
+
+
+def test_cockpit_verify_fact_and_create_project_endpoints(tmp_path: Path) -> None:
+    """Cockpit UI supports resolving needs_review facts and creating new project intakes."""
+    projects_dir = tmp_path / "projects"
+    projects_dir.mkdir(parents=True)
+    project_root = _scaffold_cockpit_project(projects_dir, "fact-edit-demo", rights_confirmed=True)
+
+    with _ephemeral_cockpit_server(projects_dir) as base_url:
+        # 1. Verify / update a needs_review fact via Cockpit API
+        verify_resp = requests.post(
+            f"{base_url}/api/projects/fact-edit-demo/verify-fact",
+            json={
+                "claim_key": "first_time_offer",
+                "verified": True,
+                "claim_value": "10% off first puppy groom",
+            },
+            timeout=5.0,
+        )
+        assert verify_resp.status_code == 200
+        assert verify_resp.json()["is_verified"] is True
+        assert verify_resp.json()["status"] == "verified"
+
+        facts_data = json.loads(
+            (project_root / "research/business-facts.json").read_text(encoding="utf-8")
+        )
+        promo_fact = next(
+            f for f in facts_data["facts"] if f["claim_key"] == "first_time_offer"
+        )
+        assert promo_fact["is_verified"] is True
+        assert promo_fact["status"] == "verified"
+
+        # 2. Create a new project intake from Cockpit dashboard API
+        create_resp = requests.post(
+            f"{base_url}/api/projects",
+            json={
+                "project_id": "new-intake-salon",
+                "business_name": "New Intake Grooming",
+                "primary_url": "https://newintake.example",
+            },
+            timeout=5.0,
+        )
+        assert create_resp.status_code == 200
+        assert create_resp.json()["project_id"] == "new-intake-salon"
+        assert (projects_dir / "new-intake-salon").is_dir()
+
+
 

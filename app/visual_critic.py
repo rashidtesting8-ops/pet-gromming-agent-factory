@@ -182,13 +182,16 @@ def run_visual_critic(
 
     defects: list[VisualDefect] = []
 
-    # 1. Screenshot-based hero contrast & framing check
+    # 1. Screenshot-based hero contrast & framing check across desktop (1440px) & mobile (390/360px)
     low_hero_contrast = False
+    low_contrast_shot_rel = primary_shot_rel
     for shot_file in screenshot_files:
-        if "1440" in shot_file.name or shot_file == screenshot_files[0]:
+        is_target_vp = any(vp in shot_file.name for vp in ("1440", "390", "360"))
+        if is_target_vp or shot_file == screenshot_files[0]:
             if _inspect_hero_screenshot_contrast(shot_file):
                 low_hero_contrast = True
-            break
+                low_contrast_shot_rel = shot_file.relative_to(project_root).as_posix()
+                break
 
     if html_text:
         soup = BeautifulSoup(html_text, "html.parser")
@@ -208,7 +211,7 @@ def run_visual_critic(
                     defects.append(
                         VisualDefect(
                             target_section_id=sec_id,
-                            screenshot_path=primary_shot_rel,
+                            screenshot_path=low_contrast_shot_rel,
                             defect_type="hero_typography_contrast",
                             actionable_instruction=(
                                 f"Enforce WCAG AA text contrast on #{sec_id} using brand primary "
@@ -304,7 +307,15 @@ def run_visual_critic(
             "Output valid JSON only."
         )
         try:
-            shot_images = [p for p in screenshot_files[:2]]
+            desktop_shots = [p for p in screenshot_files if "1440" in p.name or "1024" in p.name]
+            mobile_shots = [p for p in screenshot_files if "390" in p.name or "360" in p.name]
+            shot_images: list[Path] = []
+            if desktop_shots:
+                shot_images.append(desktop_shots[-1])
+            if mobile_shots:
+                shot_images.append(mobile_shots[-1])
+            if not shot_images:
+                shot_images = [p for p in screenshot_files[:2]]
             resp = llm_adapter.complete(
                 prompt=critic_prompt,
                 system_prompt=sys_prompt,

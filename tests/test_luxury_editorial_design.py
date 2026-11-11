@@ -261,3 +261,91 @@ def test_real_logo_and_editorial_brief_copy_rendered_in_website(tmp_path: Path) 
     # Hero must render the editorial headline and tagline from creative-brief.json
     assert brief.editorial_headline in html_text
     assert brief.editorial_tagline in html_text
+
+
+def test_generator_and_art_director_never_fabricate_unverified_facility_or_service_claims(
+    tmp_path: Path,
+) -> None:
+    """Generator and Art Director must never inject unverified claims (e.g. hydro-bath, botanical,
+    freshwater tanks, cage-free, acoustic suites) when absent from research/business-facts.json.
+    """
+    salon_proj = tmp_path / "plain-paws-salon"
+    _seed_project(
+        salon_proj,
+        business_name="Plain Paws Grooming",
+        facts=[
+            {
+                "category": "phone",
+                "claim_key": "phone",
+                "claim_value": "(512) 555-0101",
+                "is_verified": True,
+                "status": "verified",
+            },
+            {
+                "category": "services",
+                "claim_key": "service_basic_bath",
+                "claim_value": "Basic Dog Wash & Nail Trim",
+                "is_verified": True,
+                "status": "verified",
+            },
+        ],
+    )
+    generate_art_direction(salon_proj)
+    salon_html = generate_website(salon_proj).index_html_path.read_text(encoding="utf-8").lower()
+
+    mobile_proj = tmp_path / "simple-mobile-van"
+    _seed_project(
+        mobile_proj,
+        business_name="Simple Mobile Dog Van",
+        facts=[
+            {
+                "category": "phone",
+                "claim_key": "phone",
+                "claim_value": "(512) 555-0102",
+                "is_verified": True,
+                "status": "verified",
+            },
+        ],
+    )
+    generate_art_direction(mobile_proj)
+    mobile_html = generate_website(mobile_proj).index_html_path.read_text(encoding="utf-8").lower()
+
+    multi_proj = tmp_path / "simple-cat-dog"
+    _seed_project(
+        multi_proj,
+        business_name="Simple Cat & Dog Groomers",
+        facts=[
+            {
+                "category": "services",
+                "claim_key": "service_cat",
+                "claim_value": "Cat Brush Out",
+                "is_verified": True,
+                "status": "verified",
+            },
+            {
+                "category": "services",
+                "claim_key": "service_dog",
+                "claim_value": "Dog Trim",
+                "is_verified": True,
+                "status": "verified",
+            },
+        ],
+    )
+    generate_art_direction(multi_proj)
+    multi_html = generate_website(multi_proj).index_html_path.read_text(encoding="utf-8").lower()
+
+    forbidden_unverified_claims = (
+        "hydro-bath",
+        "hydro-massage",
+        "botanical",
+        "freshwater tanks",
+        "acoustic suites",
+        "zero kennel wait",
+        "cage-free",
+        "lion cuts",
+    )
+    for claim in forbidden_unverified_claims:
+        assert claim not in salon_html, f"Unverified claim '{claim}' fabricated in salon HTML"
+        assert claim not in mobile_html, f"Unverified claim '{claim}' fabricated in mobile HTML"
+        assert claim not in multi_html, f"Unverified claim '{claim}' fabricated in multi HTML"
+

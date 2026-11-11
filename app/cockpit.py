@@ -8,6 +8,7 @@ surgical section revisions, and release freezing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import mimetypes
@@ -27,12 +28,21 @@ from app.approval import (
     generate_review_summary,
     stage_release_candidate,
 )
-from app.db import connect_db, init_db, list_projects
+from app.db import (
+    BusinessFactRecord,
+    ProjectRecord,
+    connect_db,
+    init_db,
+    list_projects,
+    upsert_business_fact,
+    upsert_project,
+)
 from app.generator import revise_section
 from app.ghl_exporter import (
     export_ghl_snippet_from_html,
     validate_ghl_embed_simulation,
 )
+from app.rights import confirm_asset_rights as record_asset_rights_audit
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -85,6 +95,18 @@ class ApproveReleaseRequest(BaseModel):
 class ReviseSectionRequest(BaseModel):
     section_name: str
     new_html: str
+
+
+class VerifyFactRequest(BaseModel):
+    claim_key: str
+    verified: bool = True
+    claim_value: str | None = None
+
+
+class CreateProjectRequest(BaseModel):
+    project_id: str
+    business_name: str
+    primary_url: str = ""
 
 
 def _render_dashboard_html(projects: list[dict[str, Any]]) -> str:
@@ -158,12 +180,18 @@ def _render_review_cockpit_html(
             else '<span class="badge badge-amber">needs_review</span>'
         )
 
+        toggle_ver = str(not is_ver).lower()
+        fact_btn = (
+            f'<button class="btn-sm" '
+            f'onclick="verifyFact(\'{key}\', {toggle_ver})">'
+            f'{"Mark Needs Review" if is_ver else "Verify Fact"}</button>'
+        )
         row = (
             "        <tr>\n"
             f'          <td><span class="cat-pill">{cat}</span></td>\n'
             f"          <td><strong>{key}</strong><br>"
             f'<span class="val-text">{val}</span></td>\n'
-            f"          <td>{badge}</td>\n"
+            f"          <td>{badge}<br><div style='margin-top:4px;'>{fact_btn}</div></td>\n"
             f'          <td class="snippet-cell">"{snippet}"<br>'
             f'<a href="{src_url}" target="_blank" rel="noopener">{src_url}</a></td>\n'
             "        </tr>\n"
@@ -315,6 +343,85 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
         _resolve_project_root(project_id, resolved_projects_dir)
         return generate_review_summary(project_id, projects_dir=resolved_projects_dir)
 
+    @app.post("/api/projects")
+    def create_project_endpoint(req: CreateProjectRequest) -> dict[str, Any]:
+        pid = req.project_id.strip()
+        if not pid or ".." in pid or "/" in pid or "\\" in pid:
+            raise HTTPException(status_code=400, detail="Invalid project_id")
+        project_root = (resolved_projects_dir / pid).resolve()
+        if not project_root.is_relative_to(resolved_projects_dir.resolve()):
+            raise HTTPException(status_code=400, detail="Invalid project_id path")
+        for sub in ("research", "design", "website", "qa/screenshots", "assets/optimized"):
+            (project_root / sub).mkdir(parents=True, exist_ok=True)
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            upsert_project(
+                conn,
+                ProjectRecord(
+                    project_id=pid,
+                    business_name=req.business_name.strip() or pid,
+                    primary_url=req.primary_url.strip(),
+                    status="awaiting_approval",
+                ),
+            )
+        finally:
+            conn.close()
+        return {
+            "status": "created",
+            "project_id": pid,
+            "business_name": req.business_name.strip() or pid,
+            "primary_url": req.primary_url.strip(),
+        }
+
+    @app.post("/api/projects/{project_id}/verify-fact")
+    def verify_fact_endpoint(project_id: str, req: VerifyFactRequest) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        facts_path = root / "research" / "business-facts.json"
+        if not facts_path.is_file():
+            raise HTTPException(status_code=404, detail="business-facts.json not found")
+        facts_data = json.loads(facts_path.read_text(encoding="utf-8"))
+        facts_list = facts_data.get("facts", [])
+        matched_fact: dict[str, Any] | None = None
+        for f in facts_list:
+            if str(f.get("claim_key", "")) == req.claim_key:
+                f["is_verified"] = req.verified
+                f["status"] = "verified" if req.verified else "needs_review"
+                if req.claim_value is not None:
+                    f["claim_value"] = req.claim_value.strip()
+                matched_fact = f
+                break
+        if matched_fact is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Fact '{req.claim_key}' not found in business-facts.json",
+            )
+        _atomic_write_text(facts_path, json.dumps(facts_data, indent=2))
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            upsert_business_fact(
+                conn,
+                BusinessFactRecord(
+                    fact_id=str(matched_fact.get("fact_id") or f"{project_id}:{req.claim_key}"),
+                    project_id=project_id,
+                    category=str(matched_fact.get("category") or "general"),
+                    claim_key=req.claim_key,
+                    claim_value=str(matched_fact.get("claim_value") or ""),
+                    source_url=str(matched_fact.get("source_url") or ""),
+                    source_text_snippet=str(matched_fact.get("source_text_snippet") or ""),
+                    is_verified=req.verified,
+                ),
+            )
+        finally:
+            conn.close()
+        return {
+            "status": "verified" if req.verified else "needs_review",
+            "claim_key": req.claim_key,
+            "is_verified": req.verified,
+            "claim_value": matched_fact.get("claim_value"),
+        }
+
     @app.post("/api/projects/{project_id}/confirm-rights")
     def confirm_asset_rights(project_id: str, req: ConfirmRightsRequest) -> dict[str, Any]:
         root = _resolve_project_root(project_id, resolved_projects_dir)
@@ -324,12 +431,14 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
 
         manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
         updated = False
+        matched_rel_file = ""
         target_norm = req.asset_file.replace("\\", "/").strip().lstrip("/")
 
         for item in manifest_data:
             item_file = str(item.get("file", "")).replace("\\", "/").strip().lstrip("/")
             if item_file == target_norm or item_file.endswith(target_norm):
                 item["rights_confirmed_for_preview"] = req.confirmed
+                matched_rel_file = item_file
                 updated = True
                 break
 
@@ -340,6 +449,19 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
             )
 
         _atomic_write_text(manifest_path, json.dumps(manifest_data, indent=2))
+        if req.confirmed:
+            try:
+                record_asset_rights_audit(
+                    root,
+                    asset=matched_rel_file or target_norm,
+                    basis="client_provided",
+                    operator="Cockpit Operator",
+                    evidence="Confirmed via Operator Cockpit UI",
+                    projects_dir=resolved_projects_dir,
+                    db_path=db_path,
+                )
+            except Exception:
+                pass
         return {
             "status": "updated",
             "asset_file": req.asset_file,
@@ -349,10 +471,17 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
     @app.post("/api/projects/{project_id}/approve")
     def approve_release_endpoint(project_id: str, req: ApproveReleaseRequest) -> dict[str, Any]:
         root = _resolve_project_root(project_id, resolved_projects_dir)
+        target_version = (req.version or "v1").strip()
+        if target_version == "v1" and (root / "versions" / "v1").exists():
+            next_idx = 2
+            while (root / "versions" / f"v{next_idx}").exists():
+                next_idx += 1
+            target_version = f"v{next_idx}"
+
         try:
             manifest_sha = approve_release(
                 root,
-                version=req.version,
+                version=target_version,
                 operator_name=req.operator_name,
                 notes=req.notes,
                 projects_dir=resolved_projects_dir,
@@ -361,7 +490,7 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
             return {
                 "status": "approved",
                 "project_id": project_id,
-                "version": req.version,
+                "version": target_version,
                 "manifest_sha256": manifest_sha,
             }
         except ReleaseApprovalGateError as gate_err:
@@ -378,7 +507,17 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
                 req.new_html,
                 project_folder=root,
             )
-            stage_release_candidate(root)
+            cand_path, _ = stage_release_candidate(root)
+            qa_path = root / "qa" / "qa-report.json"
+            if qa_path.is_file() and cand_path.is_file():
+                try:
+                    qa_data = json.loads(qa_path.read_text(encoding="utf-8"))
+                    qa_data["candidate_sha256"] = hashlib.sha256(
+                        cand_path.read_bytes()
+                    ).hexdigest()
+                    _atomic_write_text(qa_path, json.dumps(qa_data, indent=2))
+                except Exception:
+                    pass
             return {
                 "status": "revised",
                 "project_id": project_id,
