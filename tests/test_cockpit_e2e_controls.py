@@ -123,3 +123,9 @@ def test_cockpit_create_project_run_now_and_resume_endpoints(
     assert "resume" in html_body.lower()
     assert "/api/projects/cockpit-live-1/resume" in html_body or "resumeJob" in html_body
 
+    # Dashboard UI includes New Project + Run Now intake form
+    dash_status, dash_body = _asgi_call(app, "GET", "/dashboard")
+    assert dash_status == 200
+    assert "data-ev-new-project-form" in dash_body
+    assert "run_now" in dash_body
+
