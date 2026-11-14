@@ -314,6 +314,15 @@ def run_qa_engine(
                         page.on("pageerror", _on_pageerror)
 
                         page.goto(target_url, wait_until="load", timeout=20000)
+                        page.evaluate(
+                            "() => { for (const img of document.images) { "
+                            "if (img.loading === 'lazy') img.loading = 'eager'; "
+                            "img.scrollIntoView({behavior: 'instant'}); } window.scrollTo(0, 0); }"
+                        )
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:
+                            pass
                         page.wait_for_timeout(200)
 
                         eval_res = page.evaluate(_BROWSER_INSPECTION_JS) or {}

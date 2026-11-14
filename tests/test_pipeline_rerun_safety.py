@@ -109,11 +109,22 @@ def test_approved_project_rerun_refuses_with_project_locked_error(tmp_path: Path
         project_root = projects_dir / biz_id
 
         # 2. Confirm asset rights
+        from app.rights import confirm_asset_rights
+
         manifest_file = project_root / "research" / "asset-manifest.json"
         rows = json.loads(manifest_file.read_text(encoding="utf-8"))
         for r in rows:
             r["rights_confirmed_for_preview"] = True
         manifest_file.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        confirm_asset_rights(
+            project_root,
+            all_assets=True,
+            basis="owner_permission",
+            operator="Lead Auditor",
+            evidence="Confirmed rights for safety-salon",
+            projects_dir=projects_dir,
+            db_path=db_path,
+        )
 
         # 3. Approve and freeze release
         release_tree_sha = approve_release(

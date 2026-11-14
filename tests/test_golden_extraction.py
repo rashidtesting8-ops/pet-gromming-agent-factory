@@ -25,16 +25,17 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 
 # Baseline performance achieved by the current extractor on the golden corpus
 BASELINE_THRESHOLDS = {
-    "overall_precision": 70.0,
-    "overall_recall": 50.0,
+    "overall_precision": 75.0,
+    "overall_recall": 90.0,
+    "overall_verified_precision": 80.0,
     "categories": {
         "business_name": {"precision": 90.0, "recall": 90.0},
-        "address": {"precision": 90.0, "recall": 35.0},
-        "hours": {"precision": 90.0, "recall": 40.0},
-        "phone": {"precision": 90.0, "recall": 50.0},
-        "pricing": {"precision": 40.0, "recall": 25.0},
-        "services": {"precision": 25.0, "recall": 25.0},
-        "cancellation_policy": {"precision": 60.0, "recall": 75.0},
+        "address": {"precision": 75.0, "recall": 95.0},
+        "hours": {"precision": 85.0, "recall": 85.0},
+        "phone": {"precision": 80.0, "recall": 95.0},
+        "pricing": {"precision": 60.0, "recall": 90.0},
+        "services": {"precision": 60.0, "recall": 90.0},
+        "cancellation_policy": {"precision": 70.0, "recall": 90.0},
     },
 }
 
@@ -254,17 +255,23 @@ def score_category_facts(
         tp_verified = 0
         fp_verified = 0
 
+        matched_exp_indices: set[int] = set()
         for ext in ext_list:
             ext_val = str(getattr(ext, "claim_value", ""))
             ext_status = str(getattr(ext, "status", ""))
             ext_norm = _normalize_token(ext_val)
 
             matched_exp = None
-            for exp in exp_list:
+            for idx, exp in enumerate(exp_list):
+                if idx in matched_exp_indices:
+                    continue
                 exp_val = str(exp.get("normalized_value", exp.get("claim_value", "")))
                 exp_norm = _normalize_token(exp_val)
-                if ext_norm == exp_norm or ext_norm in exp_norm or exp_norm in ext_norm:
+                if ext_norm == exp_norm or (
+                    ext_norm and exp_norm and (ext_norm in exp_norm or exp_norm in ext_norm)
+                ):
                     matched_exp = exp
+                    matched_exp_indices.add(idx)
                     break
 
             if matched_exp is not None:
@@ -318,7 +325,9 @@ def test_hard_rule_verified_precision_scoring_logic() -> None:
     assert verified_precision == 0.0, "Wrong verified fact must drop verified precision to 0.0"
 
 
-def test_baseline_extraction_on_golden_corpus(capsys: pytest.CaptureFixture[str]) -> None:
+def test_baseline_extraction_on_golden_corpus(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     """Run current fact extractor against all golden fixtures and score baseline precision/recall.
 
     Reports baseline precision, recall, and verified-fact precision for each business category.
@@ -336,7 +345,10 @@ def test_baseline_extraction_on_golden_corpus(capsys: pytest.CaptureFixture[str]
         expected_file = slug_dir / "expected.json"
         expected_facts = json.loads(expected_file.read_text(encoding="utf-8"))
 
-        report = extract_business_facts(slug_dir)
+        import shutil
+        work_dir = tmp_path / slug_dir.name
+        shutil.copytree(slug_dir, work_dir)
+        report = extract_business_facts(work_dir)
         scores = score_category_facts(expected_facts, report.facts)
 
         for cat, sc in scores.items():

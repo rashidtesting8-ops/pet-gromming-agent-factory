@@ -100,6 +100,18 @@ def _scaffold_cockpit_project(
     (project_root / "research/asset-manifest.json").write_text(
         json.dumps(asset_manifest, indent=2), encoding="utf-8"
     )
+    if rights_confirmed:
+        from app.rights import confirm_asset_rights
+
+        confirm_asset_rights(
+            project_root,
+            all_assets=True,
+            basis="client_provided",
+            operator="Cockpit Test Operator",
+            evidence="Scaffold rights confirmed",
+            projects_dir=projects_dir,
+            db_path=db_path,
+        )
 
     # 3. Facts
     facts_payload = {

@@ -533,7 +533,7 @@ def run_pipeline(
                 idempotency_key=gen_idemp,
                 status="running",
             )
-            generate_website(project_root)
+            generate_website(project_root, llm_adapter=llm_adapter)
             _record_job_transition(
                 conn,
                 project_id=project_id,
@@ -548,8 +548,6 @@ def run_pipeline(
             ["website/index.html", "website/css/styles.css", "website/js/main.js"],
         )
         qa_idemp = build_stage_idempotency_key(project_id, "qa", qa_hash)
-        critique_idemp = build_stage_idempotency_key(project_id, "critique", qa_hash)
-        revise_idemp = build_stage_idempotency_key(project_id, "revise", qa_hash)
 
         _record_job_transition(
             conn,
@@ -563,11 +561,17 @@ def run_pipeline(
 
         # Bounded Critique -> Revise -> QA loop (max 3 cycles)
         for _cycle in range(MAX_REVISION_ITERATIONS):
+            cycle_crit_idemp = build_stage_idempotency_key(
+                project_id, "critique", f"{qa_hash}_c{_cycle}"
+            )
+            cycle_rev_idemp = build_stage_idempotency_key(
+                project_id, "revise", f"{qa_hash}_c{_cycle}"
+            )
             _record_job_transition(
                 conn,
                 project_id=project_id,
                 module_name="critique",
-                idempotency_key=critique_idemp,
+                idempotency_key=cycle_crit_idemp,
                 status="running",
             )
             critique_report = run_visual_critic(project_root, llm_adapter=llm_adapter)
@@ -575,7 +579,7 @@ def run_pipeline(
                 conn,
                 project_id=project_id,
                 module_name="critique",
-                idempotency_key=critique_idemp,
+                idempotency_key=cycle_crit_idemp,
                 status="completed",
             )
 
@@ -584,7 +588,7 @@ def run_pipeline(
                     conn,
                     project_id=project_id,
                     module_name="revise",
-                    idempotency_key=revise_idemp,
+                    idempotency_key=cycle_rev_idemp,
                     status="completed",
                 )
                 break
@@ -593,7 +597,7 @@ def run_pipeline(
                 conn,
                 project_id=project_id,
                 module_name="revise",
-                idempotency_key=revise_idemp,
+                idempotency_key=cycle_rev_idemp,
                 status="running",
             )
             apply_targeted_revisions(project_root)
@@ -601,7 +605,7 @@ def run_pipeline(
                 conn,
                 project_id=project_id,
                 module_name="revise",
-                idempotency_key=revise_idemp,
+                idempotency_key=cycle_rev_idemp,
                 status="completed",
             )
             stage_release_candidate(project_root)

@@ -25,7 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 MIN_HERO_WIDTH = 800
 MIN_GALLERY_COUNT = 4
 MIN_SHARPNESS_SCORE = 0.08
+MAX_SAFE_IMAGE_PIXELS = 25_000_000
+PHASH_HAMMING_THRESHOLD = 2
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+Image.MAX_IMAGE_PIXELS = MAX_SAFE_IMAGE_PIXELS
 
 CSS_PERCENT_RE = re.compile(r"^\d{1,3}(?:\.\d+)?%$")
 CSS_OBJECT_POSITION_RE = re.compile(r"^\d{1,3}(?:\.\d+)?%\s+\d{1,3}(?:\.\d+)?%$")
@@ -82,6 +86,29 @@ def _format_css_pct(value: float) -> str:
     return f"{clamped:.1f}%"
 
 
+def compute_perceptual_hash(img: Image.Image) -> str:
+    """Compute a 16-hex-char (64-bit) perceptual hash combining spatial gradient & RGB cells."""
+    small_rgb = img.convert("RGB").resize((8, 8), Image.Resampling.BILINEAR)
+    pixels = list(small_rgb.getdata())
+    bits = 0
+    for idx in range(64):
+        r, g, b = pixels[idx]
+        nxt_r, nxt_g, nxt_b = pixels[(idx + 1) % 64]
+        lum = r * 3 + g * 6 + b
+        nxt_lum = nxt_r * 3 + nxt_g * 6 + nxt_b
+        bucket_parity = ((r // 8) ^ (g // 8) ^ (b // 8)) & 1
+        bit = 1 if (lum > nxt_lum) ^ bool(bucket_parity) else 0
+        bits = (bits << 1) | bit
+    return f"{bits:016x}"
+
+
+def hamming_distance_hex(h1: str, h2: str) -> int:
+    """Return bitwise Hamming distance between two hex hash strings."""
+    if not h1 or not h2 or len(h1) != len(h2):
+        return 64
+    return (int(h1, 16) ^ int(h2, 16)).bit_count()
+
+
 class CuratorHeuristicObservation(BaseModel):
     """Observation returned by an LVM adapter or deterministic Pillow visual analyzer."""
 
@@ -107,6 +134,7 @@ class CuratedImageCandidate(BaseModel):
     filename: str
     relative_path: str
     sha256: str
+    phash: str | None = None
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     aspect_ratio: float = Field(gt=0.0)
@@ -301,6 +329,14 @@ def curate_project_images(
     llm_hero_override: str | None = None
     llm_facility_override: str | None = None
     llm_excluded_names: set[str] = set()
+    warnings: list[str] = []
+    if llm_adapter is not None:
+        prov = getattr(llm_adapter, "provider", llm_adapter)
+        if getattr(prov, "supports_vision", True) is False:
+            raise ValueError(
+                f"Configuration error: curator requires a vision-capable provider, "
+                f"but {prov.__class__.__name__} has supports_vision=False"
+            )
     if llm_adapter is not None and image_files:
         curation_images: list[Path] = []
         if contact_sheet_file.is_file():
@@ -333,29 +369,55 @@ def curate_project_images(
                 llm_facility_override = llm_data["facility_filename"].strip()
             if isinstance(llm_data.get("excluded_filenames"), list):
                 llm_excluded_names = {str(x).strip() for x in llm_data["excluded_filenames"]}
-        except Exception:
-            pass
+        except (RuntimeError, ValueError, OSError, KeyError, TypeError) as exc:
+            warnings.append(f"Vision LLM curation unavailable: {exc}")
 
     valid_candidates: list[tuple[CuratedImageCandidate, RoleHint]] = []
     excluded: list[ExcludedImageRecord] = []
     seen_sha256: set[str] = set()
+    seen_phashes: list[tuple[str, str]] = []
 
     for img_path in image_files:
         rel_path = img_path.relative_to(project_root).as_posix()
         raw_bytes = img_path.read_bytes()
         sha256 = hashlib.sha256(raw_bytes).hexdigest()
 
-        with Image.open(img_path) as pil_img:
-            rgb_img = pil_img.convert("RGB")
-            width, height = rgb_img.size
-            aspect_ratio = round(width / max(1, height), 4)
-            obs = adapter(img_path, rgb_img)
+        try:
+            with Image.open(img_path) as pil_img:
+                w_raw, h_raw = pil_img.size
+                if w_raw * h_raw > MAX_SAFE_IMAGE_PIXELS:
+                    raise Image.DecompressionBombError(
+                        f"Image pixels ({w_raw * h_raw}) exceed limit ({MAX_SAFE_IMAGE_PIXELS})"
+                    )
+                rgb_img = pil_img.convert("RGB")
+                width, height = rgb_img.size
+                aspect_ratio = round(width / max(1, height), 4)
+                phash_val = compute_perceptual_hash(rgb_img)
+                obs = adapter(img_path, rgb_img)
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning, OSError) as exc:
+            excluded.append(
+                ExcludedImageRecord(
+                    filename=img_path.name,
+                    relative_path=rel_path,
+                    width=1,
+                    height=1,
+                    reasons=[f"decompression_bomb_or_corrupt: {exc}"],
+                )
+            )
+            continue
 
         low_res_for_hero = width < MIN_HERO_WIDTH
         failure_reasons: list[str] = []
 
         if sha256 in seen_sha256:
             failure_reasons.append("duplicate_sha256: identical image content already evaluated")
+        else:
+            for prev_name, prev_phash in seen_phashes:
+                if hamming_distance_hex(phash_val, prev_phash) <= 8:
+                    failure_reasons.append(
+                        f"perceptual_duplicate: near-identical visual content to {prev_name}"
+                    )
+                    break
         if obs.has_embedded_text or img_path.name in llm_excluded_names:
             failure_reasons.append(
                 "embedded_text_or_promotional_banner: baked-in text or discount graphic detected"
@@ -382,6 +444,7 @@ def curate_project_images(
             continue
 
         seen_sha256.add(sha256)
+        seen_phashes.append((img_path.name, phash_val))
         focal_x = _format_css_pct(obs.focal_x_pct)
         focal_y = _format_css_pct(obs.focal_y_pct)
         obj_pos = f"{focal_x} {focal_y}"
@@ -396,6 +459,7 @@ def curate_project_images(
             filename=img_path.name,
             relative_path=rel_path,
             sha256=sha256,
+            phash=phash_val,
             width=width,
             height=height,
             aspect_ratio=aspect_ratio,
@@ -419,7 +483,6 @@ def curate_project_images(
 
     # Strict deduplication across sections: each filename / sha256 can only be assigned once
     assigned_filenames: set[str] = set()
-    warnings: list[str] = []
 
     # 1. Select salon_facility_or_van first if explicitly hinted
     facility_candidate: CuratedImageCandidate | None = None

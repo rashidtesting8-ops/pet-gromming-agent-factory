@@ -244,11 +244,37 @@ def _split_css_declarations(body: str) -> list[str]:
     return decls
 
 
-def scope_css(css_text: str, root_selector: str) -> str:
-    """Prefix every CSS rule selector with root_selector and move :root vars to root_selector."""
+def _keyframe_prefix(root_selector: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "", root_selector.lstrip("#.")) + "-kf-"
+
+
+def _collect_keyframe_names(css_text: str) -> set[str]:
+    return set(re.findall(r"@(?:-webkit-)?keyframes\s+([A-Za-z_][\w-]*)", css_text))
+
+
+def scope_css(
+    css_text: str,
+    root_selector: str,
+    _kf_names: set[str] | None = None,
+) -> str:
+    """Prefix every CSS rule selector with root_selector and move :root vars to root_selector.
+
+    @keyframes names are namespaced with the root id and animation references rewritten.
+    """
     cleaned = _CSS_COMMENT_RE.sub("", css_text)
+    kf_names = _kf_names if _kf_names is not None else _collect_keyframe_names(cleaned)
+    kf_prefix = _keyframe_prefix(root_selector)
     blocks = _split_top_level_css_blocks(cleaned)
     out: list[str] = []
+
+    def _rename_anim_refs(decl_text: str) -> str:
+        def _sub(m: re.Match[str]) -> str:
+            prop, val = m.group(1), m.group(2)
+            for name in sorted(kf_names, key=len, reverse=True):
+                val = re.sub(rf"(?<![\w-]){re.escape(name)}(?![\w-])", f"{kf_prefix}{name}", val)
+            return f"{prop}{val}"
+
+        return re.sub(r"(animation(?:-name)?\s*:\s*)([^;]+)", _sub, decl_text, flags=re.I)
 
     for header, body in blocks:
         if not body and header.endswith(";"):
@@ -257,14 +283,24 @@ def scope_css(css_text: str, root_selector: str) -> str:
 
         lower_hdr = header.lower()
         if lower_hdr.startswith(("@media", "@supports", "@container")):
-            nested_scoped = scope_css(body, root_selector)
+            nested_scoped = scope_css(body, root_selector, kf_names)
             indented = "\n".join(f"  {line}" for line in nested_scoped.splitlines() if line.strip())
             out.append(f"{header} {{\n{indented}\n}}")
-        elif lower_hdr.startswith(("@keyframes", "@-webkit-keyframes", "@font-face")):
+        elif lower_hdr.startswith(("@keyframes", "@-webkit-keyframes")):
+            renamed_header = re.sub(
+                r"^(@(?:-webkit-)?keyframes\s+)([A-Za-z_][\w-]*)",
+                lambda m: f"{m.group(1)}{kf_prefix}{m.group(2)}",
+                header,
+                flags=re.I,
+            )
+            out.append(f"{renamed_header} {{\n  {body}\n}}")
+        elif lower_hdr.startswith("@font-face"):
             out.append(f"{header} {{\n  {body}\n}}")
         else:
             scoped_header = _scope_selector_list(header, root_selector)
             declarations = "; ".join(_split_css_declarations(body))
+            if kf_names:
+                declarations = _rename_anim_refs(declarations)
             if declarations:
                 declarations += ";"
             out.append(f"{scoped_header} {{ {declarations} }}")

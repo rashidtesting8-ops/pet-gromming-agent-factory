@@ -267,6 +267,8 @@ class GeneratedWebsiteBundle(BaseModel):
     css_path: Path
     js_path: Path
     pricing_needs_review: bool
+    brand_needs_review: bool = False
+    status: str = "verified"
     has_before_after_slider: bool
     section_hashes_path: Path | None = None
     section_files: dict[str, Path] = Field(default_factory=dict)
@@ -804,7 +806,89 @@ roots.forEach(function(root) {{
 """
 
 
-def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
+def _maybe_author_bespoke_sections(
+    *,
+    project_id: str,
+    llm_adapter: Any,
+    sections_map: dict[str, str],
+    brand_data: dict[str, Any],
+    brief_data: dict[str, Any],
+    facts_list: list[dict[str, Any]],
+    selection_data: dict[str, Any],
+) -> None:
+    """Optionally author bespoke section HTML via llm_adapter, gated by security & claim checks."""
+    if llm_adapter is None:
+        return
+    from app.claim_scanner import scan_html_for_unsupported_claims
+
+    verified_summary = [
+        {
+            "category": str(f.get("category", "")),
+            "claim_value": str(f.get("claim_value", "")),
+        }
+        for f in facts_list
+        if bool(f.get("is_verified", False)) and str(f.get("status", "verified")) == "verified"
+    ][:25]
+    brand_ctx = json.dumps(
+        {"business_name": brand_data.get("business_name"), "tagline": brand_data.get("tagline")}
+    )
+    brief_ctx = json.dumps(
+        {
+            "archetype": brief_data.get("archetype"),
+            "visual_direction": brief_data.get("visual_direction"),
+        }
+    )
+    img_ctx = json.dumps({"hero": (selection_data.get("hero_image") or {}).get("relative_path")})
+    prompt = (
+        "Author bespoke semantic HTML5 <section> fragments as JSON mapping section_id -> HTML "
+        "for any of ['hero', 'services', 'contact']. Use ONLY the verified facts provided; "
+        "NEVER invent prices, credentials, awards, phone numbers, or claims. "
+        "Use relative asset paths only (no external URLs, no <script>, no inline event handlers).\n"
+        f"Brand: {brand_ctx}\n"
+        f"Brief: {brief_ctx}\n"
+        f"VerifiedFacts: {json.dumps(verified_summary)}\n"
+        f"Images: {img_ctx}"
+    )
+    try:
+        resp = llm_adapter.complete(
+            prompt=prompt,
+            system_prompt=(
+                "Return strictly a JSON object mapping section_id strings "
+                "to HTML <section> strings."
+            ),
+            temperature=0.2,
+            max_tokens=1500,
+            project_id=project_id,
+            stage="generator_bespoke_sections",
+        )
+        raw_content = str(getattr(resp, "content", "") or "").strip()
+        if raw_content.startswith("```"):
+            raw_content = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", raw_content).strip()
+        parsed = json.loads(raw_content)
+    except Exception:
+        return
+
+    if not isinstance(parsed, dict):
+        return
+
+    for sec_id, sec_html in parsed.items():
+        if sec_id not in sections_map or not isinstance(sec_html, str) or not sec_html.strip():
+            continue
+        try:
+            validate_section_html(sec_id, sec_html)
+        except Exception:
+            continue
+        scan_res = scan_html_for_unsupported_claims(sec_html, facts_list)
+        if not scan_res.passed:
+            continue
+        sections_map[sec_id] = sec_html.strip()
+
+
+def generate_website(
+    project_folder: str | Path,
+    *,
+    llm_adapter: Any = None,
+) -> GeneratedWebsiteBundle:
     """Synthesize semantic HTML5, responsive CSS, and isolated vanilla JS in website/."""
     project_root = Path(project_folder).resolve()
     project_id = project_root.name
@@ -944,18 +1028,15 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
 
     if is_mobile:
         archetype = "mobile"
-        eyebrow_text = "Private Driveway Mobile Grooming Studio"
-        default_pills = ["Mobile Driveway Grooming", "Direct Appointment Booking"]
+        eyebrow_text = f"{esc_name} — Mobile Grooming"
     elif serves_dogs and serves_cats:
         archetype = "multi-species"
-        eyebrow_text = "Bespoke Canine &amp; Feline Grooming Studio"
-        default_pills = ["Canine &amp; Feline Grooming", "Individual Coat Care"]
+        eyebrow_text = f"{esc_name} — Canine &amp; Feline Grooming"
     else:
         archetype = "salon"
-        eyebrow_text = "Bespoke Pet Grooming Studio"
-        default_pills = ["Professional Coat Styling", "Unhurried 1-on-1 Appointments"]
+        eyebrow_text = f"{esc_name} — Pet Grooming"
 
-    pill_items = [html.escape(p) for p in verified_pill_candidates[:3]] or default_pills
+    pill_items = [html.escape(p) for p in verified_pill_candidates[:3]]
     trust_pills = "".join(f'<span class="ev-trust-pill">{p}</span>' for p in pill_items)
 
     raw_headline = str(brief_data.get("editorial_headline") or "").strip()
@@ -966,7 +1047,7 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
 
     raw_tagline = str(brief_data.get("editorial_tagline") or "").strip()
     if not raw_tagline:
-        raw_tagline = "Authentic, compassionate pet grooming tailored to your companion."
+        raw_tagline = ", ".join(verified_services[:2]) if verified_services else business_name
 
     raw_value_prop = str(brief_data.get("editorial_value_prop") or "").strip()
 
@@ -998,6 +1079,9 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
 
     # Archetype-specific feature banner inside Services section (strictly from verified facts)
     archetype_showcase_html = ""
+    corpus_lower = " ".join(
+        [business_name, *verified_services, *verified_equipment, *verified_radius]
+    ).lower()
     if archetype == "mobile":
         mobile_bullets = [
             html.escape(b)
@@ -1010,14 +1094,17 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
                 f"Direct Phone Scheduling: {html.escape(phone)}" if phone else "Direct Scheduling",
             ]
         li_markup = "".join(f"    <li>{b}</li>\n" for b in mobile_bullets[:3])
+        has_van_claim = "van" in corpus_lower
+        showcase_cls = "ev-van-showcase" if has_van_claim else "ev-mobile-showcase"
+        heading_label = "Mobile Grooming Van" if has_van_claim else "Driveway Mobile Grooming"
         archetype_showcase_html = (
-            '<div class="ev-van-showcase">\n'
-            f'  <h3>Mobile Grooming Van — Driveway Convenience by {esc_name}</h3>\n'
-            '  <p>Professional mobile pet grooming delivered directly to your address.</p>\n'
-            '  <ul class="ev-van-features">\n'
+            f'<div class="{showcase_cls}">\n'
+            f"  <h3>{heading_label} — Driveway Convenience by {esc_name}</h3>\n"
+            "  <p>Mobile pet grooming delivered directly to your address.</p>\n"
+            '  <ul class="ev-mobile-features">\n'
             f"{li_markup}"
-            '  </ul>\n'
-            '</div>\n'
+            "  </ul>\n"
+            "</div>\n"
         )
     elif archetype == "multi-species":
         dog_svcs = [
@@ -1033,26 +1120,26 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
         dog_desc = (
             ", ".join(dog_svcs)
             if dog_svcs
-            else "Dedicated canine grooming and coat care tailored to your dog."
+            else "Canine grooming and coat care."
         )
         cat_desc = (
             ", ".join(cat_svcs)
             if cat_svcs
-            else "Dedicated feline grooming and coat care tailored to your cat."
+            else "Feline grooming and coat care."
         )
         archetype_showcase_html = (
             '<div class="ev-species-showcase">\n'
             '  <div class="ev-species-card" data-species-tab="dogs">\n'
-            '    <span class="ev-species-badge">Canine Atelier</span>\n'
+            '    <span class="ev-species-badge">Canine Grooming</span>\n'
             '    <h3 class="ev-card-title">Signature Canine Grooming</h3>\n'
-            f'    <p>{dog_desc}</p>\n'
-            '  </div>\n'
+            f"    <p>{dog_desc}</p>\n"
+            "  </div>\n"
             '  <div class="ev-species-card" data-species-tab="cats">\n'
-            '    <span class="ev-species-badge">Feline Sanctuary</span>\n'
-            '    <h3 class="ev-card-title">Quiet Feline Grooming</h3>\n'
-            f'    <p>{cat_desc}</p>\n'
-            '  </div>\n'
-            '</div>\n'
+            '    <span class="ev-species-badge">Feline Grooming</span>\n'
+            '    <h3 class="ev-card-title">Dedicated Feline Grooming</h3>\n'
+            f"    <p>{cat_desc}</p>\n"
+            "  </div>\n"
+            "</div>\n"
         )
 
     # Build Services & Pricing section (Luxury Editorial Spa Menu)
@@ -1079,7 +1166,7 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             f'<div class="ev-menu-item ev-card">'
             f'<h3 class="ev-card-title">{html.escape(svc)}</h3>'
             f'<span class="ev-menu-leader" aria-hidden="true"></span>'
-            f'<span class="ev-price-badge">Bespoke Care</span>'
+            f'<span class="ev-price-badge" data-status="needs_review">Quote on Request</span>'
             f"</div>"
             for svc in verified_services
         )
@@ -1103,7 +1190,7 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
             f'<img class="ev-gallery-img" src="{html.escape(src)}" '
             f'alt="{esc_name} Grooming Portfolio {idx}" loading="lazy" '
             f'style="object-position: {html.escape(pos)};">'
-            f'<figcaption class="ev-bento-caption">Verified Client Portrait #{idx}</figcaption>'
+            f'<figcaption class="ev-bento-caption">Gallery Photo {idx}</figcaption>'
             f"</figure>"
             for idx, (src, pos) in enumerate(gallery_items, start=1)
         )
@@ -1261,6 +1348,16 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     sections_map["contact"] = contact_html
     sections_map["footer"] = footer_html
 
+    _maybe_author_bespoke_sections(
+        project_id=project_id,
+        llm_adapter=llm_adapter,
+        sections_map=sections_map,
+        brand_data=brand_data,
+        brief_data=brief_data,
+        facts_list=facts_list,
+        selection_data=selection_data,
+    )
+
     website_dir = project_root / "website"
     sections_dir = website_dir / "sections"
     css_dir = website_dir / "css"
@@ -1302,12 +1399,19 @@ def generate_website(project_folder: str | Path) -> GeneratedWebsiteBundle:
     hashes_path = website_dir / "section-hashes.json"
     _atomic_write_text(hashes_path, json.dumps(section_hashes, indent=2))
 
+    brand_needs_review = bool(
+        brand_data.get("brand_needs_review", brand_data.get("used_fallback_palette", True))
+    )
+    bundle_status = "needs_review" if (brand_needs_review or pricing_needs_review) else "verified"
+
     return GeneratedWebsiteBundle(
         project_id=project_id,
         index_html_path=index_path,
         css_path=css_path,
         js_path=js_path,
         pricing_needs_review=pricing_needs_review,
+        brand_needs_review=brand_needs_review,
+        status=bundle_status,
         has_before_after_slider=before_after is not None,
         section_hashes_path=hashes_path,
         section_files=section_files,

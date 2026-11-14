@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup, Tag
 from PIL import Image, ImageStat
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-CritiqueStatus = Literal["passed", "defects_found"]
+CritiqueStatus = Literal["passed", "defects_found", "unavailable", "failed"]
 
 PROHIBITED_VAGUE_PHRASES: tuple[str, ...] = (
     "make it better",
@@ -117,6 +117,7 @@ class VisualCriticReport(BaseModel):
     status: CritiqueStatus
     inspected_screenshots: list[str] = Field(default_factory=list)
     defects: list[VisualDefect] = Field(default_factory=list)
+    error_message: str | None = None
     checked_at: datetime = Field(default_factory=_utc_now)
 
 
@@ -287,6 +288,14 @@ def run_visual_critic(
                 )
 
     # Multimodal LLM visual critique on rendered screenshots
+    llm_failed_msg: str | None = None
+    if llm_adapter is not None:
+        prov = getattr(llm_adapter, "provider", llm_adapter)
+        if getattr(prov, "supports_vision", True) is False:
+            raise ValueError(
+                f"Configuration error: visual_critic requires a vision-capable provider, "
+                f"but {prov.__class__.__name__} has supports_vision=False"
+            )
     if llm_adapter is not None and screenshot_files:
         critic_prompt = (
             f"Project: {project_id}\n"
@@ -327,26 +336,27 @@ def run_visual_critic(
             )
             llm_data = json.loads(resp.content)
             for raw_d in llm_data.get("defects", []):
-                try:
-                    defects.append(
-                        VisualDefect(
-                            target_section_id=str(raw_d.get("target_section_id", "hero")),
-                            screenshot_path=str(raw_d.get("screenshot_path", primary_shot_rel)),
-                            defect_type=str(raw_d.get("defect_type", "visual_layout")),
-                            actionable_instruction=str(raw_d.get("actionable_instruction", "")),
-                        )
+                defects.append(
+                    VisualDefect(
+                        target_section_id=str(raw_d.get("target_section_id", "hero")),
+                        screenshot_path=str(raw_d.get("screenshot_path", primary_shot_rel)),
+                        defect_type=str(raw_d.get("defect_type", "visual_layout")),
+                        actionable_instruction=str(raw_d.get("actionable_instruction", "")),
                     )
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                )
+        except (RuntimeError, ValueError, OSError, KeyError, TypeError) as exc:
+            llm_failed_msg = str(exc)
 
-    status: CritiqueStatus = "defects_found" if defects else "passed"
+    if llm_failed_msg is not None:
+        status: CritiqueStatus = "unavailable"
+    else:
+        status = "defects_found" if defects else "passed"
     report = VisualCriticReport(
         project_id=project_id,
         status=status,
         inspected_screenshots=inspected_rels,
         defects=defects,
+        error_message=llm_failed_msg,
     )
     out_path = project_root / "qa" / "visual-critique.json"
     _atomic_write_text(out_path, report.model_dump_json(indent=2))

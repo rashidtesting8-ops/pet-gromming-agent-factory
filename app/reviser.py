@@ -197,10 +197,11 @@ def _patch_single_section_markup(raw_section_html: str, defects: list[VisualDefe
     for defect in defects:
         dtype = defect.defect_type.lower()
         instr = defect.actionable_instruction
-        applied_types.append(defect.defect_type)
+        matched_recipe = False
 
         # 1. Fix cropped pet head / object-position
         if "cropped_pet_head" in dtype or "object-position" in instr.lower():
+            matched_recipe = True
             pos_match = OBJECT_POS_EXTRACT_RE.search(instr)
             target_pos = pos_match.group(1) if pos_match else "50% 28%"
             for img in sec_tag.find_all("img"):
@@ -218,6 +219,7 @@ def _patch_single_section_markup(raw_section_html: str, defects: list[VisualDefe
 
         # 2. Fix repetitive card syndrome (flat beige #F5F5DC backgrounds)
         if "repetitive_card" in dtype or "beige" in instr.lower() or "#f5f5dc" in instr.lower():
+            matched_recipe = True
             for el in [sec_tag, *sec_tag.find_all(True)]:
                 if not isinstance(el, Tag):
                     continue
@@ -233,6 +235,7 @@ def _patch_single_section_markup(raw_section_html: str, defects: list[VisualDefe
 
         # 3. Fix cramped section padding / whitespace rhythm
         if "spacing" in dtype or "padding" in instr.lower() or "rhythm" in dtype:
+            matched_recipe = True
             sec_style = str(sec_tag.get("style", ""))
             if SMALL_PADDING_RE.search(sec_style):
                 sec_style = SMALL_PADDING_RE.sub(
@@ -245,13 +248,18 @@ def _patch_single_section_markup(raw_section_html: str, defects: list[VisualDefe
 
         # 4. Fix hero typography contrast or CTA prominence
         if "contrast" in dtype or "cta" in dtype or "typography" in dtype:
+            matched_recipe = True
             heading = sec_tag.find(["h1", "h2"])
             if isinstance(heading, Tag):
                 h_style = str(heading.get("style", ""))
                 sep = "; " if h_style.strip() and not h_style.strip().endswith(";") else ""
                 heading["style"] = f"{h_style.strip()}{sep}color: var(--ev-primary, #1B365D);"
 
-    sec_tag["data-ev-revised"] = ",".join(dict.fromkeys(applied_types))
+        if matched_recipe:
+            applied_types.append(defect.defect_type)
+
+    if applied_types:
+        sec_tag["data-ev-revised"] = ",".join(dict.fromkeys(applied_types))
     return str(sec_tag)
 
 
@@ -347,22 +355,40 @@ def apply_targeted_revisions(project_folder: str | Path) -> RevisionPatchResult:
             if sec_file.is_file():
                 _atomic_write_text(sec_file, p_html.strip() + "\n")
 
-    # Append targeted CSS rules scoped strictly to the flagged #section_id selectors
+    # Append targeted CSS rules scoped strictly to the flagged #section_id AND requested property
     if css_path.is_file() and modified_ids:
         existing_css = css_path.read_text(encoding="utf-8")
         css_patches: list[str] = []
         for sid in modified_ids:
-            rule = (
-                f"#{sid} {{ padding: clamp(1.25rem, 2.5vw, 2rem); "
-                "background-color: var(--ev-surface, #FFFFFF); }}"
-            )
+            sec_defects = defects_by_section.get(sid, [])
+            props: list[str] = []
+            if any(
+                "spacing" in d.defect_type.lower()
+                or "padding" in d.actionable_instruction.lower()
+                or "rhythm" in d.defect_type.lower()
+                for d in sec_defects
+            ):
+                props.append("padding: clamp(1.25rem, 2.5vw, 2rem);")
+            if any(
+                "repetitive_card" in d.defect_type.lower()
+                or "beige" in d.actionable_instruction.lower()
+                or "#f5f5dc" in d.actionable_instruction.lower()
+                for d in sec_defects
+            ):
+                props.append("background-color: var(--ev-surface, #FFFFFF);")
+            if not props:
+                continue
+            rule = f"#{sid} {{ {' '.join(props)} }}"
             css_patches.append(rule)
             sec_css_file = website_dir / "css" / f"{sid}.css"
             if sec_css_file.is_file():
                 sec_css_text = sec_css_file.read_text(encoding="utf-8")
                 if rule not in sec_css_text:
                     _atomic_write_text(sec_css_file, sec_css_text.rstrip() + "\n" + rule + "\n")
-        _atomic_write_text(css_path, existing_css.rstrip() + "\n" + "\n".join(css_patches) + "\n")
+        if css_patches:
+            _atomic_write_text(
+                css_path, existing_css.rstrip() + "\n" + "\n".join(css_patches) + "\n"
+            )
 
     after_hashes = compute_section_hashes(updated_html, project_folder=website_dir)
 

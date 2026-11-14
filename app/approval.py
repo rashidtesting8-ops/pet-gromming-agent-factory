@@ -229,13 +229,37 @@ def export_approved_deliverables(
     approval_token: str | None = None,
 ) -> tuple[Path, Path]:
     """Compile approved-homepage.html and ghl-ready.html behind the human approval gate."""
-    has_valid_token = isinstance(approval_token, str) and len(approval_token.strip()) >= 4
-    if not is_approved and not has_valid_token:
-        raise ReleaseApprovalGateError(
-            "Deliverable export is locked: require is_approved=True or valid approval_token"
-        )
-
     project_root = Path(project_folder).resolve()
+    manifest_path = project_root / "delivery" / "release-manifest.json"
+    expected_env_token = os.environ.get("EDITVISTA_APPROVAL_TOKEN", "").strip()
+    manifest_version_hash = ""
+    if manifest_path.is_file():
+        try:
+            m_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_version_hash = str(m_data.get("version_hash", "")).strip()
+        except (json.JSONDecodeError, OSError):
+            manifest_version_hash = ""
+
+    has_valid_token = False
+    if isinstance(approval_token, str):
+        tok = approval_token.strip()
+        if not tok:
+            raise ReleaseApprovalGateError("Deliverable export blocked: empty approval_token")
+        if expected_env_token and len(expected_env_token) >= 16 and tok == expected_env_token:
+            has_valid_token = True
+        elif len(manifest_version_hash) == 64 and tok == manifest_version_hash:
+            has_valid_token = True
+        else:
+            raise ReleaseApprovalGateError(
+                "Deliverable export blocked: invalid approval_token (does not match "
+                "issued release-manifest.json version_hash or configured secret)"
+            )
+
+    if not (is_approved and len(manifest_version_hash) == 64) and not has_valid_token:
+        raise ReleaseApprovalGateError(
+            "Deliverable export is locked: require verified delivery/release-manifest.json "
+            "or valid issued approval_token"
+        )
     standalone_path, _ = stage_release_candidate(project_root)
 
     delivery_dir = project_root / "delivery"
@@ -373,34 +397,26 @@ def approve_release(
         )
 
     # 3b. Refuse if each used asset has no matching audit entry for its CURRENT sha256
-    from app.db import list_assets_for_project
     from app.rights import check_used_assets_audit_signatures
 
     used_assets = extract_used_assets(candidate_html.read_text(encoding="utf-8"))
     audit_file = project_root / "research" / "rights-audit.jsonl"
-    resolved_db_check = (
-        Path(db_path).resolve()
-        if db_path is not None
-        else (Path(projects_dir).resolve() / "editvista.sqlite3")
-    )
-    has_unconfirmed_db_assets = False
-    if resolved_db_check.is_file():
-        conn_check = connect_db(resolved_db_check)
-        try:
-            init_db(conn_check)
-            has_unconfirmed_db_assets = any(
-                not r.asset_id.startswith(f"{project_root.name}-asset-")
-                and not r.rights_confirmed_for_preview
-                for r in list_assets_for_project(conn_check, project_root.name)
-            )
-        finally:
-            conn_check.close()
 
     audit_violations = check_used_assets_audit_signatures(project_root, used_assets)
-    if (audit_file.is_file() or has_unconfirmed_db_assets) and audit_violations:
+    if used_assets and (not audit_file.is_file() or audit_violations):
         raise ReleaseApprovalGateError(
             f"Release blocked: used asset has no matching audit entry in rights-audit.jsonl "
-            f"for its CURRENT sha256: {audit_violations}"
+            f"for its CURRENT sha256: {audit_violations or used_assets}"
+        )
+
+    # 3c-0. HARD gate: no unsupported factual claims in the candidate (not acknowledgeable)
+    from app.claim_scanner import scan_project_html
+
+    claim_report = scan_project_html(project_root, candidate_html)
+    if not claim_report.passed:
+        listed = [f"{v.kind}:{v.text}" for v in claim_report.violations]
+        raise ReleaseApprovalGateError(
+            f"Release blocked: unsupported claims not backed by verified facts: {listed}"
         )
 
     # 3c. Refuse if open visual defects or unverified facts are present unless acknowledged
@@ -409,28 +425,48 @@ def approve_release(
     if critique_path.is_file():
         try:
             crit_data = json.loads(critique_path.read_text(encoding="utf-8"))
-            if crit_data.get("status") == "defects_found" or crit_data.get("defects"):
-                for d in crit_data.get("defects", []):
-                    desc = d.get("description") if isinstance(d, dict) else str(d)
-                    open_issues.append(f"visual_critique_defect: {desc}")
-        except Exception:
-            pass
+            if not isinstance(crit_data, dict):
+                raise ValueError("visual-critique.json root must be a JSON object")
+        except (json.JSONDecodeError, OSError, ValueError, TypeError) as exc:
+            raise ReleaseApprovalGateError(
+                f"Release blocked: corrupted or unreadable visual-critique.json: {exc}"
+            ) from exc
+        crit_status = str(crit_data.get("status", "passed"))
+        if crit_status in ("unavailable", "failed") and acknowledge_open_issues is not True:
+            raise ReleaseApprovalGateError(
+                f"Release blocked: visual critique status is '{crit_status}'. "
+                "Pass acknowledge_open_issues=True to override."
+            )
+        if crit_status in ("unavailable", "failed"):
+            open_issues.append(f"visual_critic_status: {crit_status}")
+        if crit_status == "defects_found" or crit_data.get("defects"):
+            for d in crit_data.get("defects", []):
+                desc = (
+                    (d.get("description") or d.get("actionable_instruction") or str(d))
+                    if isinstance(d, dict)
+                    else str(d)
+                )
+                open_issues.append(f"visual_critique_defect: {desc}")
 
     facts_path = project_root / "research" / "business-facts.json"
     if facts_path.is_file():
         try:
             facts_payload = json.loads(facts_path.read_text(encoding="utf-8"))
-            cand_html_text = candidate_html.read_text(encoding="utf-8")
-            for fact in facts_payload.get("facts", []):
-                if not bool(fact.get("is_verified", False)) or fact.get("status") == "needs_review":
-                    claim_val = str(fact.get("claim_value", "")).strip()
-                    if claim_val and claim_val in cand_html_text:
-                        open_issues.append(
-                            f"unverified_fact_used: {fact.get('category')}."
-                            f"{fact.get('claim_key')}='{claim_val}'"
-                        )
-        except Exception:
-            pass
+            if not isinstance(facts_payload, dict):
+                raise ValueError("business-facts.json root must be a JSON object")
+        except (json.JSONDecodeError, OSError, ValueError, TypeError) as exc:
+            raise ReleaseApprovalGateError(
+                f"Release blocked: corrupted or unreadable business-facts.json: {exc}"
+            ) from exc
+        cand_html_text = candidate_html.read_text(encoding="utf-8")
+        for fact in facts_payload.get("facts", []):
+            if not bool(fact.get("is_verified", False)) or fact.get("status") == "needs_review":
+                claim_val = str(fact.get("claim_value", "")).strip()
+                if claim_val and claim_val in cand_html_text:
+                    open_issues.append(
+                        f"unverified_fact_used: {fact.get('category')}."
+                        f"{fact.get('claim_key')}='{claim_val}'"
+                    )
 
     if open_issues and acknowledge_open_issues is False:
         raise ReleaseApprovalGateError(

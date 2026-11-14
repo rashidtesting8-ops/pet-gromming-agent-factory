@@ -135,6 +135,18 @@ def _scaffold_reviewable_project(
     (project_root / "research/asset-manifest.json").write_text(
         json.dumps(asset_manifest), encoding="utf-8"
     )
+    if asset_rights_confirmed:
+        from app.rights import confirm_asset_rights
+
+        confirm_asset_rights(
+            project_root,
+            all_assets=True,
+            basis="owner_permission",
+            operator="Alice Reviewer",
+            evidence="Fixture rights confirmed",
+            projects_dir=projects_dir,
+            db_path=db_path,
+        )
 
     # 5-viewport screenshots & QA report
     for width in (1440, 1024, 768, 390, 360):

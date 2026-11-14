@@ -259,7 +259,7 @@ def test_pipeline_e2e_with_llm_adapter_executes_orchestration(tmp_path: Path) ->
     editorial_payload = {
         "editorial_headline": "Holistic Spa & Gentle Grooming For Every Pup",
         "editorial_tagline": "Stress-free pampering in downtown Brooklyn",
-        "editorial_value_prop": "Certified master groomers dedicated to patient, loving pet care.",
+        "editorial_value_prop": "Gentle, patient grooming care for every dog and cat.",
         "suggested_sections": ["hero", "services", "trust", "contact"],
     }
     critique_payload = {
@@ -273,6 +273,13 @@ def test_pipeline_e2e_with_llm_adapter_executes_orchestration(tmp_path: Path) ->
             completion_tokens=65,
             total_tokens=245,
             model="fake-art-director",
+        ),
+        LLMResponse(
+            content=json.dumps({}),
+            prompt_tokens=120,
+            completion_tokens=10,
+            total_tokens=130,
+            model="fake-generator",
         ),
         LLMResponse(
             content=json.dumps(critique_payload),

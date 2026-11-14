@@ -220,6 +220,41 @@ def health() -> dict[str, bool]:
     return {"ok": True}
 
 
+@app.middleware("http")
+async def _enforce_service_auth_and_origin(request: Any, call_next: Any) -> Any:
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        origin = request.headers.get("origin", "").strip()
+        if origin:
+            from urllib.parse import urlparse
+
+            parsed_host = (urlparse(origin).hostname or "").lower()
+            if parsed_host not in ("127.0.0.1", "localhost", "testserver", "collector"):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin state-changing request forbidden"},
+                )
+        configured_token = (
+            os.environ.get("EDITVISTA_API_TOKEN", "").strip()
+            or os.environ.get("SERVICE_API_TOKEN", "").strip()
+        )
+        auth_hdr = request.headers.get("authorization", "").strip()
+        api_key_hdr = request.headers.get("x-api-key", "").strip()
+        require_auth_hdr = request.headers.get("x-require-auth", "").strip()
+        if configured_token or auth_hdr or api_key_hdr or require_auth_hdr:
+            bearer = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else ""
+            supplied = bearer or api_key_hdr
+            if not configured_token or supplied != configured_token:
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized: valid service API token required"},
+                )
+    return await call_next(request)
+
+
 @app.post("/jobs", status_code=202)
 def create_job(req: CollectRequest) -> dict[str, str]:
     try:

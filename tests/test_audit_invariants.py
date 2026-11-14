@@ -147,6 +147,16 @@ def test_p1_1_pipeline_rerun_preserves_approved_delivery_and_versions(
         resume=False,
         qa_runner=_mock_qa_runner,
     )
+    from app.rights import confirm_asset_rights
+
+    confirm_asset_rights(
+        res1.project_folder,
+        all_assets=True,
+        basis="owner_permission",
+        operator="Audit Reviewer",
+        evidence="Fixture rights confirmation",
+        projects_dir=tmp_path,
+    )
     approve_release(res1.project_folder, version="v1", projects_dir=tmp_path)
     v1_html_path = res1.project_folder / "versions" / "v1" / "approved-homepage.html"
     assert v1_html_path.is_file()
@@ -226,6 +236,32 @@ def test_p1_2_verify_release_detects_tampered_asset_bytes(tmp_path: Path) -> Non
     generate_art_direction(proj)
     generate_website(proj)
     _mock_qa_runner(proj)
+    from app.db import ProjectRecord, connect_db, init_db, upsert_project
+    from app.rights import confirm_asset_rights
+
+    _conn = connect_db(tmp_path / "editvista.sqlite3")
+    try:
+        init_db(_conn)
+        upsert_project(
+            _conn,
+            ProjectRecord(
+                project_id="salon-verify",
+                business_name="Salon Verify",
+                primary_url="https://salon.example.com/",
+                status="awaiting_approval",
+            ),
+        )
+    finally:
+        _conn.close()
+
+    confirm_asset_rights(
+        proj,
+        all_assets=True,
+        basis="owner_permission",
+        operator="Audit Reviewer",
+        evidence="Fixture rights confirmation",
+        projects_dir=tmp_path,
+    )
     approve_release(proj, version="v1", projects_dir=tmp_path)
 
     # Initial verification succeeds

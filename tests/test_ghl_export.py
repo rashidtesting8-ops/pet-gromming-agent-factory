@@ -47,7 +47,9 @@ def test_css_scoping_prefixes_all_selectors_and_moves_root_vars() -> None:
     assert f"{root_sel} h1, {root_sel} h2, {root_sel} p {{" in scoped
     assert f"{root_sel} .hero-title {{" in scoped
     assert f"{root_sel} .hero-title, {root_sel} p {{" in scoped
-    assert "@keyframes fadeIn" in scoped
+    # Keyframe names are namespaced per embed so two embeds cannot clash on a host page
+    assert "@keyframes fadeIn" not in scoped
+    assert f"@keyframes {root_sel.lstrip('#')}-kf-fadeIn" in scoped
     assert find_unscoped_selectors(scoped, root_sel) == []
 
 

@@ -149,6 +149,8 @@ class BrandIdentity(BaseModel):
     accent_color: str = FALLBACK_SOFT_SAGE_HEX
     palette_names: list[str] = Field(default_factory=lambda: list(FALLBACK_PALETTE_NAMES))
     used_fallback_palette: bool = True
+    brand_needs_review: bool = False
+    status: str = "verified"
     generated_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("primary_color", "secondary_color", "accent_color")
@@ -291,37 +293,19 @@ def _synthesize_editorial_copy(
     taxonomy: BusinessTaxonomy,
     wireframe: WireframeStructure,
 ) -> tuple[str, str, str, list[str]]:
-    """Synthesize deterministic luxury editorial copy without fabricating unverified claims."""
+    """Synthesize deterministic editorial copy without fabricating unverified claims."""
     if taxonomy.is_mobile_groomer:
-        headline = f"{business_name} — Private Driveway Mobile Grooming"
-        tagline = (
-            "Dedicated mobile pet grooming delivered directly to your doorstep "
-            "with attentive, individual care."
-        )
-        value_prop = (
-            "Convenient driveway appointments and professional coat care "
-            "tailored to your companion."
-        )
+        headline = f"{business_name} — Mobile Pet Grooming"
+        tagline = "Mobile pet grooming delivered directly to your address."
+        value_prop = "Convenient driveway appointments and coat care for your companion."
     elif taxonomy.serves_dogs and taxonomy.serves_cats:
-        headline = f"{business_name} — Bespoke Canine and Feline Grooming Studio"
-        tagline = (
-            "Thoughtful grooming care crafted for discerning dogs and cats "
-            "with attentive styling."
-        )
-        value_prop = (
-            "Dedicated canine and feline grooming appointments "
-            "designed around your companion's comfort."
-        )
+        headline = f"{business_name} — Canine and Feline Grooming"
+        tagline = "Grooming and coat care for dogs and cats."
+        value_prop = "Canine and feline grooming appointments."
     else:
-        headline = f"{business_name} — Bespoke Coat Styling and Pet Grooming Studio"
-        tagline = (
-            "Compassionate, attentive pet grooming tailored to every breed "
-            "and coat."
-        )
-        value_prop = (
-            "Unhurried salon appointments and meticulous finishing "
-            "by dedicated pet stylists."
-        )
+        headline = f"{business_name} — Pet Grooming Studio"
+        tagline = "Professional pet grooming and coat care."
+        value_prop = "Salon grooming appointments and coat styling."
     return headline, tagline, value_prop, list(wireframe.ordered_sections)
 
 
@@ -394,6 +378,8 @@ def generate_art_direction(
             accent_color=accent_hex,
             palette_names=["extracted_primary", "extracted_secondary", "soft_sage"],
             used_fallback_palette=False,
+            brand_needs_review=False,
+            status="verified",
         )
     else:
         brand = BrandIdentity(
@@ -405,6 +391,8 @@ def generate_art_direction(
             accent_color=FALLBACK_SOFT_SAGE_HEX,
             palette_names=list(FALLBACK_PALETTE_NAMES),
             used_fallback_palette=True,
+            brand_needs_review=True,
+            status="needs_review",
         )
 
     selection_path = project_root / "design" / "image-selection.json"

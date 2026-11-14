@@ -107,6 +107,7 @@ class CreateProjectRequest(BaseModel):
     project_id: str
     business_name: str
     primary_url: str = ""
+    run_now: bool = False
 
 
 def _render_dashboard_html(projects: list[dict[str, Any]]) -> str:
@@ -268,13 +269,55 @@ def _render_review_cockpit_html(
     return rendered
 
 
-def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
+def create_cockpit_app(
+    projects_dir: str | Path = "./projects",
+    *,
+    api_token: str | None = None,
+) -> FastAPI:
     """Factory creating the Operator Cockpit FastAPI instance bound to a projects root."""
     resolved_projects_dir = Path(projects_dir).resolve()
     resolved_projects_dir.mkdir(parents=True, exist_ok=True)
     db_path = resolved_projects_dir / "editvista.sqlite3"
 
     app = FastAPI(title="EditVista Operator Cockpit", docs_url="/api/docs")
+
+    @app.middleware("http")
+    async def _enforce_auth_and_origin(request: Request, call_next: Any) -> Any:
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            origin = request.headers.get("origin", "").strip()
+            if origin:
+                from urllib.parse import urlparse
+
+                parsed_host = (urlparse(origin).hostname or "").lower()
+                if parsed_host not in ("127.0.0.1", "localhost", "testserver"):
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Cross-origin state-changing request forbidden"},
+                    )
+            configured_token = (
+                api_token
+                if api_token is not None
+                else (
+                    os.environ.get("EDITVISTA_API_TOKEN", "").strip()
+                    or os.environ.get("COCKPIT_API_TOKEN", "").strip()
+                )
+            )
+            auth_hdr = request.headers.get("authorization", "").strip()
+            api_key_hdr = request.headers.get("x-api-key", "").strip()
+            require_auth_hdr = request.headers.get("x-require-auth", "").strip()
+            if configured_token or auth_hdr or api_key_hdr or require_auth_hdr:
+                bearer = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else ""
+                supplied = bearer or api_key_hdr
+                if not configured_token or supplied != configured_token:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Unauthorized: valid operator API token required"},
+                    )
+        return await call_next(request)
 
     @app.get("/api/health")
     def health_check() -> dict[str, str]:
@@ -345,6 +388,8 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
 
     @app.post("/api/projects")
     def create_project_endpoint(req: CreateProjectRequest) -> dict[str, Any]:
+        import threading
+
         pid = req.project_id.strip()
         if not pid or ".." in pid or "/" in pid or "\\" in pid:
             raise HTTPException(status_code=400, detail="Invalid project_id")
@@ -353,6 +398,9 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
             raise HTTPException(status_code=400, detail="Invalid project_id path")
         for sub in ("research", "design", "website", "qa/screenshots", "assets/optimized"):
             (project_root / sub).mkdir(parents=True, exist_ok=True)
+        b_name = req.business_name.strip() or pid
+        p_url = req.primary_url.strip()
+        initial_status = "running" if (req.run_now and p_url) else "awaiting_approval"
         conn = connect_db(db_path)
         try:
             init_db(conn)
@@ -360,19 +408,77 @@ def create_cockpit_app(projects_dir: str | Path = "./projects") -> FastAPI:
                 conn,
                 ProjectRecord(
                     project_id=pid,
-                    business_name=req.business_name.strip() or pid,
-                    primary_url=req.primary_url.strip(),
-                    status="awaiting_approval",
+                    business_name=b_name,
+                    primary_url=p_url,
+                    status=initial_status,
                 ),
             )
         finally:
             conn.close()
+
+        job_started = False
+        if req.run_now and p_url:
+            import app.pipeline as pipeline_mod
+
+            def _bg_run() -> None:
+                pipeline_mod.run_pipeline(
+                    url=p_url,
+                    business_name=b_name,
+                    business_id=pid,
+                    projects_dir=resolved_projects_dir,
+                    db_path=db_path,
+                    pause_for_approval=True,
+                )
+
+            threading.Thread(target=_bg_run, daemon=True).start()
+            job_started = True
+
         return {
-            "status": "created",
+            "status": initial_status if job_started else "created",
             "project_id": pid,
-            "business_name": req.business_name.strip() or pid,
-            "primary_url": req.primary_url.strip(),
+            "business_name": b_name,
+            "primary_url": p_url,
+            "job_started": job_started,
         }
+
+    @app.post("/api/projects/{project_id}/resume")
+    def resume_project_endpoint(project_id: str) -> dict[str, Any]:
+        import threading
+
+        import app.pipeline as pipeline_mod
+
+        _resolve_project_root(project_id, resolved_projects_dir)
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            row = conn.execute(
+                "SELECT business_name, primary_url FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if not row or not str(row[1] or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot resume project without a recorded primary_url",
+            )
+        b_name = str(row[0] or project_id)
+        p_url = str(row[1])
+
+        def _bg_resume() -> None:
+            pipeline_mod.run_pipeline(
+                url=p_url,
+                business_name=b_name,
+                business_id=project_id,
+                projects_dir=resolved_projects_dir,
+                db_path=db_path,
+                resume=True,
+                pause_for_approval=True,
+            )
+
+        threading.Thread(target=_bg_resume, daemon=True).start()
+        return {"status": "resuming", "project_id": project_id, "primary_url": p_url}
 
     @app.post("/api/projects/{project_id}/verify-fact")
     def verify_fact_endpoint(project_id: str, req: VerifyFactRequest) -> dict[str, Any]:

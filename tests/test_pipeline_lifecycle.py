@@ -237,11 +237,22 @@ def test_pipeline_pauses_at_approval_gate_and_unlocks_on_cli_approve_and_prune(
     assert not (project_root / "delivery").exists()
 
     # 3. Human reviewer confirms rights_confirmed_for_preview=True in research/asset-manifest.json
+    from app.rights import confirm_asset_rights
+
     manifest_file = project_root / "research" / "asset-manifest.json"
     manifest_rows = json.loads(manifest_file.read_text(encoding="utf-8"))
     for row in manifest_rows:
         row["rights_confirmed_for_preview"] = True
     manifest_file.write_text(json.dumps(manifest_rows, indent=2), encoding="utf-8")
+    confirm_asset_rights(
+        project_root,
+        all_assets=True,
+        basis="owner_permission",
+        operator="Alice Reviewer",
+        evidence="Human review confirmation",
+        projects_dir=projects_dir,
+        db_path=db_path,
+    )
 
     # 4. Now `approve --project X --version v1` succeeds
     #    and copies candidate into delivery/ & versions/v1/

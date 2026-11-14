@@ -98,10 +98,12 @@ class FakeProvider:
         default_response: str = "Fake completion",
         canned_responses: Sequence[LLMResponse] | None = None,
         model_name: str = "fake-model-v1",
+        supports_vision: bool = True,
     ) -> None:
         self.default_response = default_response
         self._canned_responses = list(canned_responses) if canned_responses else []
         self.model_name = model_name
+        self.supports_vision = supports_vision
         self.call_count: int = 0
         self.recorded_calls: list[dict[str, Any]] = []
 
@@ -329,11 +331,19 @@ class GroqProvider(OpenAIProvider):
         default_model: str | None = None,
         timeout_seconds: float = 60.0,
         base_url: str = "https://api.groq.com/openai/v1/chat/completions",
+        supports_vision: bool | None = None,
     ) -> None:
         key = api_key or get_env_api_key("GROQ_API_KEY")
         chosen_model = default_model or os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
         super().__init__(api_key=key, default_model=chosen_model, timeout_seconds=timeout_seconds)
         self.base_url = base_url
+        if supports_vision is not None:
+            self.supports_vision = supports_vision
+        else:
+            self.supports_vision = any(
+                tok in chosen_model.lower()
+                for tok in ("vision", "llava", "llama-4", "maverick", "scout", "pixtral")
+            )
 
     def complete(
         self,
@@ -852,6 +862,11 @@ class LLMAdapter:
             or "default-model"
         )
         effective_max_tokens = max_tokens if max_tokens is not None else 1024
+        if images and getattr(self.provider, "supports_vision", True) is False:
+            raise ValueError(
+                f"Configuration error: vision input passed to non-vision provider "
+                f"{self.provider.__class__.__name__} (supports_vision=False)"
+            )
         cache_key = self.compute_cache_key(
             prompt,
             images,
@@ -1013,9 +1028,19 @@ class LLMAdapter:
 def get_default_adapter(
     project_id: str | None = None,
     config: BudgetConfig | None = None,
+    *,
+    require_vision: bool = False,
 ) -> LLMAdapter:
     """Instantiate the appropriate LLM adapter based on environment variables."""
     cfg = config or BudgetConfig()
+    preferred = (
+        os.environ.get("EDITVISTA_LLM_PROVIDER") or os.environ.get("LLM_PROVIDER") or ""
+    ).strip().lower()
+    if preferred == "openrouter" and get_env_api_key("OPENROUTER_API_KEY"):
+        return LLMAdapter(OpenRouterProvider(), config=cfg)
+    if preferred == "groq" and get_env_api_key("GROQ_API_KEY") and not require_vision:
+        return LLMAdapter(GroqProvider(), config=cfg)
+
     if get_env_api_key("ANTHROPIC_API_KEY"):
         return LLMAdapter(AnthropicProvider(), config=cfg)
     if get_env_api_key("OPENAI_API_KEY"):
@@ -1023,7 +1048,9 @@ def get_default_adapter(
     if get_env_api_key("GEMINI_API_KEY"):
         return LLMAdapter(GeminiProvider(), config=cfg)
     if get_env_api_key("GROQ_API_KEY"):
-        return LLMAdapter(GroqProvider(), config=cfg)
+        groq = GroqProvider()
+        if not require_vision or getattr(groq, "supports_vision", False):
+            return LLMAdapter(groq, config=cfg)
     if get_env_api_key("OPENROUTER_API_KEY"):
         return LLMAdapter(OpenRouterProvider(), config=cfg)
     return LLMAdapter(FakeProvider(), config=cfg)

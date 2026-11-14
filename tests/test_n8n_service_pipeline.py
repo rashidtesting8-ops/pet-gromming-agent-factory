@@ -135,7 +135,17 @@ def test_service_pipeline_run_and_approval_endpoints(
     assert res["qa_passed"] is True
     assert "/review/royal-paws-spa" in res["cockpit_review_url"]
 
-    # 3. Approve release via srv.approve_pipeline_project
+    # 3. Human operator confirms asset rights (audit trail), then approve via service
+    from app.rights import confirm_asset_rights
+
+    confirm_asset_rights(
+        tmp_path / "royal-paws-spa",
+        all_assets=True,
+        basis="owner_permission",
+        operator="Service Test Operator",
+        evidence="Operator verified rights after pipeline run",
+        projects_dir=tmp_path,
+    )
     app_data = srv.approve_pipeline_project(
         "royal-paws-spa",
         srv.ApprovePipelineRequest(

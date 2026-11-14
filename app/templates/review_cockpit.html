@@ -67,6 +67,7 @@
       <span class="badge badge-amber">{{STATUS}}</span>
     </div>
     <div class="actions-bar">
+      <button class="btn-resume" onclick="resumeJob()" data-ev-resume-job="true">Resume Job</button>
       <button class="btn-approve" onclick="approveRelease()">Approve &amp; Freeze Release</button>
     </div>
   </div>
@@ -182,6 +183,25 @@
         }
       } catch (err) {
         alert('Network error: ' + err.message);
+      }
+    }
+
+    async function resumeJob() {
+      try {
+        const res = await fetch('/api/projects/{{PID}}/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Resume started for ' + data.project_id);
+          window.location.reload();
+        } else {
+          alert('Resume Failed: ' + (data.detail || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
       }
     }
 

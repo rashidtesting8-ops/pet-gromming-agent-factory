@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 178 Passing](https://img.shields.io/badge/tests-178%20passing-brightgreen.svg)
+![Tests: 189 Passing](https://img.shields.io/badge/tests-189%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -458,7 +458,10 @@ The engine runs locally by default without requiring external cloud services. Op
 | Variable | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `PROJECTS_DIR` | Path | `./projects` | Filesystem root where business workspaces, snapshots, and releases are saved. |
-| `GROQ_API_KEY` | Secret | *None* | Optional API key for Groq ultra-fast Llama 3 inference in `LLMAdapter`. |
+| `OPENROUTER_API_KEY` | Secret | *None* | Optional API key for OpenRouter multi-model inference (`OpenRouterProvider`) in `LLMAdapter`. |
+| `OPENROUTER_MODEL` | String | `google/gemini-2.0-flash-001` | Default model used by `OpenRouterProvider` when `OPENROUTER_API_KEY` is set. |
+| `GROQ_API_KEY` | Secret | *None* | Optional API key for Groq ultra-fast inference (`GroqProvider`) in `LLMAdapter`. |
+| `GROQ_MODEL` | String | `openai/gpt-oss-120b` | Default model used by `GroqProvider` when `GROQ_API_KEY` is set. |
 | `ANTHROPIC_API_KEY` | Secret | *None* | Optional API key for Anthropic Claude provider in `LLMAdapter`. |
 | `OPENAI_API_KEY` | Secret | *None* | Optional API key for OpenAI GPT-4o provider in `LLMAdapter`. |
 | `GEMINI_API_KEY` | Secret | *None* | Optional API key for Google Gemini provider in `LLMAdapter`. |
@@ -678,8 +681,10 @@ The Operator Cockpit runs on `127.0.0.1:8787` (or `:8888`) and provides side-by-
 
 - `GET /` — Serves the interactive Operator Cockpit dashboard listing all projects and review statuses.
 - `GET /api/health` — Liveness probe returning `{"status": "ok"}`.
+- `POST /api/projects` — Creates a new project workspace from operator intake (`business_name`, `primary_url`, `project_id`) or launches a background build.
 - `GET /review/{project_id}` — Serves the side-by-side Operator Review Cockpit UI (`app/templates/review_cockpit.html`) with a sandboxed preview iframe (`sandbox="allow-scripts"`).
 - `GET /api/projects/{project_id}/summary` — Returns full project review summary JSON (`verified_claims_count`, `flagged_claims_count`, `curated_assets`, `screenshots`, `mvf_status`).
+- `POST /api/projects/{project_id}/verify-fact` — Toggles human operator verification (`verified` / `needs_review`) on an extracted claim in `research/business-facts.json` and SQLite.
 - `POST /api/projects/{project_id}/confirm-rights` — Updates `rights_confirmed_for_preview` for a specified asset in `research/asset-manifest.json`.
 - `POST /api/projects/{project_id}/revise-section` — Validates and applies surgical HTML revision to `website/sections/<section_name>.html`, rebuilds `website/index.html`, and re-stages `release-candidate/`.
 - `POST /api/projects/{project_id}/approve` — Validates QA freshness and asset rights, freezes read-only deliverables into `delivery/` and `versions/<version>/`, writes `release-manifest.json`, and generates archive zip.
@@ -706,7 +711,7 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Run linting, static type analysis, and all 178 automated tests
+# Run linting, static type analysis, and all 189 automated tests
 uv run ruff check . && uv run pyright && uv run pytest -v
 ```
 
@@ -718,7 +723,7 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (178 Tests Across 31 Modules)
+### Complete Test Suite Breakdown (189 Tests Across 31 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
