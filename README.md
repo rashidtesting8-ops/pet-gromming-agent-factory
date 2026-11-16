@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 218 Passing](https://img.shields.io/badge/tests-218%20passing-brightgreen.svg)
+![Tests: 220 Passing](https://img.shields.io/badge/tests-220%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -724,9 +724,11 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (218 Tests Across 37 Modules)
+### Complete Test Suite Breakdown (220 Tests Across 38 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
+| :--- | :---: | :--- |
+| `tests/test_studio_frontend_dod.py` | 2 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune`, and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
 | :--- | :---: | :--- |
 | `tests/test_security_review_fixes.py` | 7 | Security code review regression suite: verifies `_container_safe_qa_runner` fails closed without fabricating `passed=True` QA reports, blocks `/preview/` and `/assets/` access to `research/`, enforces CSP sandbox + `nosniff` + `Content-Disposition: attachment` on SVGs, enforces `hmac.compare_digest` token auth on `GET` endpoints (`/api/projects/.../summary`, `/jobs/{id}`), sanitizes/redacts internal job error paths & secrets, strips `<script>`/`on*`/`javascript:` from downloaded SVGs at crawl time (`sanitize_svg_bytes`), enforces strict `PROJECT_ID_RE` slug allow-list in Cockpit, and verifies `EDITVISTA_API_TOKEN` headers in all `n8n/*.json` workflows. |
 | :--- | :---: | :--- |

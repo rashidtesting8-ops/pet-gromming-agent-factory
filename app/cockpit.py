@@ -114,6 +114,16 @@ class CreateProjectRequest(BaseModel):
     run_now: bool = False
 
 
+class ConfirmAllRightsRequest(BaseModel):
+    basis: str = "owner_permission"
+    operator: str = "Studio Operator"
+    evidence: str = "Confirmed via Monograph Studio Cockpit"
+
+
+class PruneProjectRequest(BaseModel):
+    mode: str = "plan"
+
+
 def _render_dashboard_html(projects: list[dict[str, Any]]) -> str:
     template_path = TEMPLATES_DIR / "dashboard.html"
     raw_template = template_path.read_text(encoding="utf-8")
@@ -332,6 +342,17 @@ def create_cockpit_app(
     def health_check() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/static/studio.js")
+    def serve_studio_bundle() -> Response:
+        bundle_path = Path(__file__).resolve().parent / "static" / "studio.js"
+        if not bundle_path.is_file():
+            raise HTTPException(status_code=404, detail="Studio bundle not found")
+        return Response(
+            content=bundle_path.read_bytes(),
+            media_type="application/javascript; charset=utf-8",
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
+
     @app.get("/", response_class=HTMLResponse)
     @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:
@@ -394,6 +415,146 @@ def create_cockpit_app(
     def project_summary_api(project_id: str) -> dict[str, Any]:
         _resolve_project_root(project_id, resolved_projects_dir)
         return generate_review_summary(project_id, projects_dir=resolved_projects_dir)
+
+    @app.get("/api/projects/{project_id}/dod-status")
+    def project_dod_status_api(project_id: str) -> dict[str, Any]:
+        from app.claim_scanner import scan_project_html
+        from app.reviser import compute_section_hashes
+        from engine.cleanup import archive_path
+
+        max_project_bytes = 300 * 1024 * 1024
+
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        summary = generate_review_summary(project_id, projects_dir=resolved_projects_dir)
+        fm = summary.get("fact_metrics", {})
+        verified_facts = int(fm.get("verified_count", 0))
+        total_facts = int(fm.get("total_facts", 0))
+        assets = list(summary.get("assets", []))
+        confirmed_assets = sum(1 for a in assets if a.get("rights_confirmed_for_preview"))
+
+        cand_html = root / "release-candidate" / "standalone.html"
+        if not cand_html.is_file():
+            cand_html = root / "website" / "index.html"
+        claim_violations: list[str] = []
+        claim_passed = True
+        if cand_html.is_file():
+            scan_rep = scan_project_html(root, cand_html)
+            claim_passed = scan_rep.passed
+            claim_violations = [f"{v.kind}:{v.text}" for v in scan_rep.violations]
+
+        idx_html = root / "website" / "index.html"
+        sec_hashes: dict[str, str] = {}
+        if idx_html.is_file():
+            try:
+                sec_hashes = compute_section_hashes(idx_html)
+            except Exception:
+                sec_hashes = {}
+
+        release_frozen = (root / "delivery" / "release-manifest.json").is_file()
+        arch = archive_path(root)
+        archive_exists = arch.is_file()
+        proj_bytes = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+
+        status = "awaiting_approval"
+        conn = connect_db(db_path)
+        try:
+            init_db(conn)
+            row = conn.execute(
+                "SELECT status FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if row:
+                status = str(row[0])
+        finally:
+            conn.close()
+
+        return {
+            "project_id": project_id,
+            "status": status,
+            "gates": {
+                "facts_verified": verified_facts > 0,
+                "rights_confirmed": len(assets) == 0 or confirmed_assets == len(assets),
+                "claim_scanner_passed": claim_passed,
+                "five_view_qa_passed": bool(summary.get("technical_qa_passed", False)),
+                "visual_critique_status": str(summary.get("visual_critique_status", "pending")),
+                "section_hashes_present": len(sec_hashes) > 0,
+                "release_frozen": release_frozen,
+                "archive_verified": archive_exists,
+            },
+            "verified_fact_count": verified_facts,
+            "total_fact_count": total_facts,
+            "confirmed_asset_count": confirmed_assets,
+            "total_asset_count": len(assets),
+            "claim_violations": claim_violations,
+            "section_hashes": sec_hashes,
+            "storage": {
+                "project_bytes": proj_bytes,
+                "max_project_bytes": max_project_bytes,
+                "archive_exists": archive_exists,
+                "archive_filename": arch.name,
+            },
+            "visual_defects": list(summary.get("visual_defects", [])),
+        }
+
+    @app.get("/api/projects/{project_id}/section/{section_name}")
+    def get_section_markup_api(project_id: str, section_name: str) -> dict[str, str]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        clean_sec = section_name.strip().lower()
+        if not PROJECT_ID_RE.match(clean_sec):
+            raise HTTPException(status_code=400, detail="Invalid section_name")
+        sec_file = root / "website" / "sections" / f"{clean_sec}.html"
+        if sec_file.is_file():
+            markup = sec_file.read_text(encoding="utf-8")
+        else:
+            idx_file = root / "website" / "index.html"
+            if not idx_file.is_file():
+                raise HTTPException(status_code=404, detail="Section markup not found")
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(idx_file.read_text(encoding="utf-8"), "html.parser")
+            node = soup.find(attrs={"data-section": clean_sec}) or soup.find(id=clean_sec)
+            if node is None:
+                raise HTTPException(status_code=404, detail=f"Section '{clean_sec}' not found")
+            markup = str(node)
+        sha = hashlib.sha256(markup.strip().encode("utf-8")).hexdigest()
+        return {
+            "project_id": project_id,
+            "section_name": clean_sec,
+            "html": markup,
+            "sha256": sha,
+        }
+
+    @app.post("/api/projects/{project_id}/confirm-all-rights")
+    def confirm_all_rights_api(
+        project_id: str, req: ConfirmAllRightsRequest
+    ) -> dict[str, Any]:
+        from app.rights import confirm_asset_rights as confirm_all_fn
+
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        try:
+            entries = confirm_all_fn(
+                root,
+                all_assets=True,
+                basis=req.basis,
+                operator=req.operator,
+                evidence=req.evidence,
+                projects_dir=resolved_projects_dir,
+                db_path=db_path,
+            )
+            return {"status": "confirmed", "confirmed_count": len(entries)}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{project_id}/prune")
+    def prune_project_api(project_id: str, req: PruneProjectRequest) -> dict[str, Any]:
+        from engine.cleanup import cleanup
+
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        mode = req.mode if req.mode in ("plan", "archive", "prune") else "plan"
+        try:
+            return cleanup(root, mode=mode, confirm=(mode == "prune"))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/projects")
     def create_project_endpoint(req: CreateProjectRequest) -> dict[str, Any]:
