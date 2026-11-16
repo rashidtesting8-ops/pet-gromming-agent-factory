@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 211 Passing](https://img.shields.io/badge/tests-211%20passing-brightgreen.svg)
+![Tests: 214 Passing](https://img.shields.io/badge/tests-214%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -724,9 +724,11 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (211 Tests Across 36 Modules)
+### Complete Test Suite Breakdown (214 Tests Across 37 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
+| :--- | :---: | :--- |
+| `tests/test_security_review_fixes.py` | 3 | Security code review regression suite: verifies `_container_safe_qa_runner` fails closed without fabricating `passed=True` QA reports, blocks `/preview/` and `/assets/` access to `research/`, enforces CSP sandbox + `nosniff` + `Content-Disposition: attachment` on SVGs, and enforces `hmac.compare_digest` token auth on `GET` endpoints (`/api/projects/.../summary`, `/jobs/{id}`) when configured. |
 | :--- | :---: | :--- |
 | `tests/test_remediation_adversarial.py` | 10 | Adversarial regression suite for audit findings F1–F8: short approval token rejection, corrupted `visual-critique.json` blocking, mandatory `rights-audit.jsonl` enforcement, Cockpit bearer token & fail-closed non-loopback bind/host auth (`validate_bind_security`), `unavailable` critic blocking, fast non-vision provider error, targeted CSS revision scoping, perceptual dedupe + `DecompressionBombError` guard, and `@keyframes` GHL namespacing. |
 | `tests/test_claim_scanner.py` | 8 | Unsupported-claim scanner unit tests: blocks unverified money, percentage, phone, email, experience, and credential tokens while ignoring `<style>`/`<script>` blocks and allowing verified-fact-backed copy. |
@@ -835,7 +837,7 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
   - **Auditable Rights Management**: Legal basis confirmation and tamper-evident audit logging for all referenced assets (`app/rights.py`).
   - **Draft Reset & Rerun Safety**: Complete isolation of approved delivery and version directories during draft rebuilds (`app/pipeline.py`).
   - **Golden Regression Benchmark**: 12-business golden fixture corpus with one-to-one precision/recall scoring and `tmp_path` isolation so fixtures stay clean (`tests/golden/`, `scripts/freeze_site.py`).
-  - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed non-loopback bind/host auth (`validate_bind_security`), eager-scroll Playwright `loading="lazy"` inspection, and non-root `uv.lock`-pinned Docker builds.
+  - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed QA runner (no synthetic `passed=True` fallback), shared constant-time `src/engine/auth.py` middleware across `GET` and mutating routes, sandboxed `/preview/` & `/assets/` serving with CSP + `nosniff`, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` in non-root Docker builds, pinned `n8nio/n8n:1.76.1`, and eager-scroll Playwright `loading="lazy"` inspection.
   - **Live Milestone 5 Status**: Automated 5-archetype pilot and 1 live real-business run (`lilys-club.co.uk`: 66 facts, 16 images, 5/5 Playwright QA passed, 0 claim violations) are verified; funded live vision critique + 4 additional varied live grooming businesses remain for full real-world Milestone 5 sign-off.
 
 ---
