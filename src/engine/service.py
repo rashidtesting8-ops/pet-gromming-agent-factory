@@ -239,6 +239,18 @@ async def _enforce_service_auth_and_origin(request: Any, call_next: Any) -> Any:
             os.environ.get("EDITVISTA_API_TOKEN", "").strip()
             or os.environ.get("SERVICE_API_TOKEN", "").strip()
         )
+        req_host = (request.headers.get("host", "").split(":")[0] or "").strip().lower()
+        if (
+            req_host
+            and req_host not in ("127.0.0.1", "localhost", "::1", "testserver", "collector")
+            and not configured_token
+        ):
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Non-loopback requests require EDITVISTA_API_TOKEN"},
+            )
         auth_hdr = request.headers.get("authorization", "").strip()
         api_key_hdr = request.headers.get("x-api-key", "").strip()
         require_auth_hdr = request.headers.get("x-require-auth", "").strip()

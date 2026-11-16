@@ -182,10 +182,10 @@ def _asgi_post(
     app: Any, path: str, payload: dict[str, Any], headers: dict[str, str] | None = None
 ) -> tuple[int, str]:
     body = json.dumps(payload).encode("utf-8")
-    raw_headers = [
-        (b"content-type", b"application/json"),
-        (b"host", b"testserver"),
-    ]
+    raw_headers = [(b"content-type", b"application/json")]
+    has_host = any(k.lower() == "host" for k in (headers or {}))
+    if not has_host:
+        raw_headers.append((b"host", b"testserver"))
     if headers:
         for k, v in headers.items():
             raw_headers.append((k.lower().encode("ascii"), v.encode("ascii")))
@@ -405,3 +405,23 @@ def test_f7_ghl_exporter_namespaces_keyframes() -> None:
     assert "@keyframes ev-biz-kf-fadeIn" in scoped
     assert "animation: ev-biz-kf-fadeIn 0.4s ease-in;" in scoped
     assert "animation-name: ev-biz-kf-fadeIn;" in scoped
+
+
+def test_non_loopback_bind_requires_api_token(tmp_path: Path) -> None:
+    from app.cockpit import validate_bind_security
+
+    with pytest.raises(RuntimeError, match="EDITVISTA_API_TOKEN"):
+        validate_bind_security("0.0.0.0", None)
+
+    validate_bind_security("127.0.0.1", None)
+    validate_bind_security("0.0.0.0", "secret-operator-token")
+
+    proj = _seed_approvable_project(tmp_path)
+    app = create_cockpit_app(projects_dir=proj.parent)
+    status_non_loopback, _ = _asgi_post(
+        app,
+        f"/api/projects/{proj.name}/approve",
+        {"operator_name": "Reviewer"},
+        headers={"Host": "192.168.1.50:8788"},
+    )
+    assert status_non_loopback == 403

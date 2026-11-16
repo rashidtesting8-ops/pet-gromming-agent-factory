@@ -269,6 +269,29 @@ def _render_review_cockpit_html(
     return rendered
 
 
+LOOPBACK_HOSTS: tuple[str, ...] = ("127.0.0.1", "localhost", "::1", "testserver")
+
+
+def validate_bind_security(host: str, api_token: str | None = None) -> None:
+    """Refuse non-loopback binds unless an operator API token is configured."""
+    normalized = host.strip().lower().strip("[]")
+    if normalized in ("127.0.0.1", "localhost", "::1"):
+        return
+    token = (
+        api_token
+        if api_token is not None
+        else (
+            os.environ.get("EDITVISTA_API_TOKEN", "").strip()
+            or os.environ.get("COCKPIT_API_TOKEN", "").strip()
+        )
+    )
+    if not token:
+        raise RuntimeError(
+            f"Refusing to bind non-loopback host '{host}' without "
+            "EDITVISTA_API_TOKEN or COCKPIT_API_TOKEN."
+        )
+
+
 def create_cockpit_app(
     projects_dir: str | Path = "./projects",
     *,
@@ -304,6 +327,14 @@ def create_cockpit_app(
                     or os.environ.get("COCKPIT_API_TOKEN", "").strip()
                 )
             )
+            req_host = (request.headers.get("host", "").split(":")[0] or "").strip().lower()
+            if req_host and req_host not in LOOPBACK_HOSTS and not configured_token:
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Non-loopback requests require EDITVISTA_API_TOKEN"},
+                )
             auth_hdr = request.headers.get("authorization", "").strip()
             api_key_hdr = request.headers.get("x-api-key", "").strip()
             require_auth_hdr = request.headers.get("x-require-auth", "").strip()
@@ -784,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--projects-dir", default="./projects", help="Projects directory root")
     args = parser.parse_args(argv)
 
+    validate_bind_security(args.host)
     cockpit_app = create_cockpit_app(projects_dir=args.projects_dir)
     print(f"Starting EditVista Operator Cockpit on http://{args.host}:{args.port}")
     uvicorn.run(cockpit_app, host=args.host, port=args.port, log_level="info")
