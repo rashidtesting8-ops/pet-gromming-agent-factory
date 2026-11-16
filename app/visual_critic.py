@@ -335,13 +335,31 @@ def run_visual_critic(
                 temperature=0.1,
             )
             llm_data = json.loads(resp.content)
-            for raw_d in llm_data.get("defects", []):
+            raw_defects = (
+                llm_data
+                if isinstance(llm_data, list)
+                else (llm_data.get("defects", []) if isinstance(llm_data, dict) else [])
+            )
+            for raw_d in raw_defects:
+                if not isinstance(raw_d, dict):
+                    continue
+                instr = str(
+                    raw_d.get("actionable_instruction")
+                    or raw_d.get("instruction")
+                    or raw_d.get("recommendation")
+                    or raw_d.get("description")
+                    or ""
+                ).strip()
+                if len(instr) < 15:
+                    continue
                 defects.append(
                     VisualDefect(
-                        target_section_id=str(raw_d.get("target_section_id", "hero")),
+                        target_section_id=str(
+                            raw_d.get("target_section_id") or raw_d.get("section") or "hero"
+                        ),
                         screenshot_path=str(raw_d.get("screenshot_path", primary_shot_rel)),
                         defect_type=str(raw_d.get("defect_type", "visual_layout")),
-                        actionable_instruction=str(raw_d.get("actionable_instruction", "")),
+                        actionable_instruction=instr,
                     )
                 )
         except (RuntimeError, ValueError, OSError, KeyError, TypeError) as exc:

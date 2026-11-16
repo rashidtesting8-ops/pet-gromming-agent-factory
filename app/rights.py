@@ -131,7 +131,9 @@ def confirm_asset_rights(
     now_iso = _utc_now().isoformat()
 
     for item in manifest_items:
-        rel_file = str(item.get("file") or "")
+        rel_file = str(item.get("file") or "").strip()
+        if not rel_file:
+            continue
         item_sha = str(item.get("sha256") or "")
         file_name = Path(rel_file).name
 

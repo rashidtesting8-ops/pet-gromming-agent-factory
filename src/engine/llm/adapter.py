@@ -37,6 +37,9 @@ DEFAULT_PRICE_TABLE: dict[str, dict[str, float]] = {
     "default": {"prompt_per_1k": 0.0015, "completion_per_1k": 0.002},
     "gemini-1.5-pro": {"prompt_per_1k": 0.00125, "completion_per_1k": 0.005},
     "gemini-1.5-flash": {"prompt_per_1k": 0.000075, "completion_per_1k": 0.0003},
+    "gemini-2.5-flash": {"prompt_per_1k": 0.00015, "completion_per_1k": 0.0006},
+    "gemini-3.8-flash": {"prompt_per_1k": 0.00015, "completion_per_1k": 0.0006},
+    "gemini-3-flash-preview": {"prompt_per_1k": 0.00015, "completion_per_1k": 0.0006},
     "gpt-4o": {"prompt_per_1k": 0.005, "completion_per_1k": 0.015},
     "fake-model-v1": {"prompt_per_1k": 0.001, "completion_per_1k": 0.002},
     "openai/gpt-oss-120b": {"prompt_per_1k": 0.0, "completion_per_1k": 0.0},
@@ -433,14 +436,18 @@ class OpenRouterProvider(OpenAIProvider):
 class GeminiProvider:
     """Google Gemini provider implementation using REST generateContent endpoint."""
 
+    supports_vision: bool = True
+
     def __init__(
         self,
         api_key: str | None = None,
-        default_model: str = "gemini-1.5-pro",
+        default_model: str | None = None,
         timeout_seconds: float = 60.0,
     ) -> None:
         self.api_key = api_key or get_env_api_key("GEMINI_API_KEY")
-        self.default_model = default_model
+        self.default_model = (
+            default_model or os.environ.get("GEMINI_MODEL") or "gemini-3-flash-preview"
+        )
         self.timeout_seconds = timeout_seconds
 
     def _build_url(self, model: str) -> str:
@@ -472,12 +479,16 @@ class GeminiProvider:
             )
         parts.append({"text": prompt})
 
+        gen_config: dict[str, Any] = {
+            "temperature": temperature,
+            "maxOutputTokens": max(max_tokens, 4096),
+        }
+        if "json" in (system_prompt or "").lower():
+            gen_config["responseMimeType"] = "application/json"
+
         payload: dict[str, Any] = {
             "contents": [{"parts": parts}],
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
+            "generationConfig": gen_config,
         }
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
