@@ -562,7 +562,11 @@ def create_cockpit_app(
 
         pid = req.project_id.strip()
         if not PROJECT_ID_RE.match(pid):
-            raise HTTPException(status_code=400, detail="Invalid project_id")
+            clean_pid = re.sub(r"[^a-z0-9-_]+", "-", pid.lower()).strip("-_")
+            if PROJECT_ID_RE.match(clean_pid):
+                pid = clean_pid
+            else:
+                raise HTTPException(status_code=400, detail="Invalid project_id")
         project_root = (resolved_projects_dir / pid).resolve()
         if not project_root.is_relative_to(resolved_projects_dir.resolve()):
             raise HTTPException(status_code=400, detail="Invalid project_id path")

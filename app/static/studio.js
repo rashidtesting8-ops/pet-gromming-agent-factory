@@ -608,6 +608,11 @@ function bootEditVistaStudio()       {
     const url = urlEl?.value.trim() ?? "";
     const runNow = Boolean(runNowEl?.checked);
 
+    if (newPid) {
+      newPid = newPid.toLowerCase().replace(/[^a-z0-9-_]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+      if (pidEl) pidEl.value = newPid;
+    }
+
     if (!newPid && (url || name)) {
       newPid = deriveSlug(url, name);
       if (pidEl) pidEl.value = newPid;
