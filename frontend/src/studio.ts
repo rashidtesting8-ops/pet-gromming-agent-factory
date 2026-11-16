@@ -451,17 +451,101 @@ export function bootEditVistaStudio(): void {
     await controller.runStoragePrune(mode);
   };
 
+  const deriveSlug = (u: string, n: string): string => {
+    let raw = "";
+    if (n && n.trim()) {
+      raw = n.trim().toLowerCase();
+    } else if (u && u.trim()) {
+      try {
+        const fullUrl = u.startsWith("http://") || u.startsWith("https://") ? u : `https://${u}`;
+        const host = new URL(fullUrl).hostname.replace(/^www\./, "");
+        raw = host.split(".")[0];
+      } catch {
+        raw = u.toLowerCase();
+      }
+    }
+    return raw.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  };
+
+  const deriveName = (u: string, slugVal: string): string => {
+    if (slugVal && slugVal.trim()) {
+      return slugVal.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    if (u && u.trim()) {
+      try {
+        const fullUrl = u.startsWith("http://") || u.startsWith("https://") ? u : `https://${u}`;
+        const host = new URL(fullUrl).hostname.replace(/^www\./, "");
+        const raw = host.split(".")[0].replace(/[-_]+/g, " ");
+        return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+      } catch {
+        return "";
+      }
+    }
+    return "";
+  };
+
+  const newPidEl = document.getElementById("new-pid") as HTMLInputElement | null;
+  const newNameEl = document.getElementById("new-name") as HTMLInputElement | null;
+  const newUrlEl = document.getElementById("new-url") as HTMLInputElement | null;
+
+  if (newUrlEl && newPidEl) {
+    newUrlEl.addEventListener("input", () => {
+      const u = newUrlEl.value.trim();
+      if (!newPidEl.value.trim() || newPidEl.dataset.autoDerived === "true") {
+        const autoSlug = deriveSlug(u, newNameEl?.value ?? "");
+        if (autoSlug) {
+          newPidEl.value = autoSlug;
+          newPidEl.dataset.autoDerived = "true";
+        }
+      }
+      if (newNameEl && (!newNameEl.value.trim() || newNameEl.dataset.autoDerived === "true")) {
+        const autoName = deriveName(u, newPidEl.value);
+        if (autoName) {
+          newNameEl.value = autoName;
+          newNameEl.dataset.autoDerived = "true";
+        }
+      }
+    });
+
+    newPidEl.addEventListener("input", () => {
+      delete newPidEl.dataset.autoDerived;
+    });
+  }
+
+  if (newNameEl && newPidEl) {
+    newNameEl.addEventListener("input", () => {
+      delete newNameEl.dataset.autoDerived;
+      if (!newPidEl.value.trim() || newPidEl.dataset.autoDerived === "true") {
+        const autoSlug = deriveSlug("", newNameEl.value);
+        if (autoSlug) {
+          newPidEl.value = autoSlug;
+          newPidEl.dataset.autoDerived = "true";
+        }
+      }
+    });
+  }
+
   window.createProject = async (): Promise<void> => {
     const pidEl = document.getElementById("new-pid") as HTMLInputElement | null;
     const nameEl = document.getElementById("new-name") as HTMLInputElement | null;
     const urlEl = document.getElementById("new-url") as HTMLInputElement | null;
     const runNowEl = document.getElementById("new-run-now") as HTMLInputElement | null;
-    const newPid = pidEl?.value.trim() ?? "";
-    const name = nameEl?.value.trim() ?? "";
+    let newPid = pidEl?.value.trim() ?? "";
+    let name = nameEl?.value.trim() ?? "";
     const url = urlEl?.value.trim() ?? "";
     const runNow = Boolean(runNowEl?.checked);
+
+    if (!newPid && (url || name)) {
+      newPid = deriveSlug(url, name);
+      if (pidEl) pidEl.value = newPid;
+    }
+    if (!name && (url || newPid)) {
+      name = deriveName(url, newPid);
+      if (nameEl) nameEl.value = name;
+    }
+
     if (!newPid) {
-      controller.showToast("Enter a lowercase project slug (e.g. royal-paws).", "warn");
+      controller.showToast("Enter a project slug or primary URL to initialize.", "warn");
       return;
     }
     const res = await fetch("/api/projects", {
