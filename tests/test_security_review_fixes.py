@@ -158,3 +158,64 @@ def test_high_4_get_endpoints_require_token_when_configured(
         headers={"Authorization": "Bearer svc-secret-token"},
     )
     assert svc_auth == 404
+
+
+def test_suggestion_2_service_sanitizes_internal_job_error_messages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import src.engine.service as srv
+
+    monkeypatch.setattr(srv, "DB", tmp_path / "jobs.sqlite")
+    monkeypatch.setattr(srv, "DATA_DIR", tmp_path / "projects")
+
+    def _explode(**kwargs: Any) -> Any:
+        raise RuntimeError(
+            "Fatal crash at C:\\Users\\Admin\\secret\\db.sqlite "
+            "with key sk-or-v1-999999999999999999"
+        )
+
+    monkeypatch.setattr(srv, "_run_full_pipeline_sync", _explode)
+    srv.slots.acquire(blocking=False)
+    srv.work_pipeline("job-err-1", srv.PipelineRequest(url="https://example.com"))
+    rec = srv.fetch("job-err-1")
+    assert rec is not None
+    assert rec["status"] == "failed"
+    assert "C:\\Users\\Admin" not in rec["error"]
+    assert "sk-or-v1-" not in rec["error"]
+
+
+def test_suggestion_3_collector_sanitizes_downloaded_svg_scripts_and_handlers() -> None:
+    from src.engine.collector import sanitize_svg_bytes
+
+    malicious_svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" onload="fetch(\'/approve\')">'
+        b"<script>alert(1)</script>"
+        b'<foreignObject><iframe></iframe></foreignObject>'
+        b'<a href="javascript:evil()"><rect width="10" height="10"/></a>'
+        b"</svg>"
+    )
+    cleaned = sanitize_svg_bytes(malicious_svg).decode("utf-8")
+    assert "<script" not in cleaned.lower()
+    assert "foreignobject" not in cleaned.lower()
+    assert "onload" not in cleaned.lower()
+    assert "javascript:" not in cleaned.lower()
+    assert "<rect" in cleaned.lower()
+
+
+def test_suggestion_6_cockpit_enforces_strict_project_id_slug_regex(tmp_path: Path) -> None:
+    cockpit = create_cockpit_app(projects_dir=tmp_path / "projects")
+    for bad_id in (".hidden", "bad slug!@#", "-leading-dash", "Upper_Case"):
+        status, _, _ = _asgi_request(
+            cockpit,
+            "POST",
+            "/api/projects",
+            {"project_id": bad_id, "business_name": "Test"},
+        )
+        assert status == 400, f"Expected 400 for {bad_id!r}, got {status}"
+
+
+def test_issue_4_n8n_workflows_include_api_token_header() -> None:
+    n8n_dir = Path(__file__).resolve().parent.parent / "n8n"
+    for wf_path in sorted(n8n_dir.glob("*.json")):
+        raw = wf_path.read_text(encoding="utf-8")
+        assert "EDITVISTA_API_TOKEN" in raw, f"Missing EDITVISTA_API_TOKEN header in {wf_path.name}"

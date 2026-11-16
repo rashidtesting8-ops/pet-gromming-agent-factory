@@ -137,6 +137,20 @@ def _run_full_pipeline_sync(
     }
 
 
+def _sanitize_job_error(exc: Exception) -> str:
+    """Log full traceback server-side and return a redacted, path-masked error summary."""
+    import logging
+    import re
+
+    from engine.llm.adapter import redact_secrets
+
+    logging.getLogger(__name__).exception("Background job failed")
+    msg = redact_secrets(str(exc))
+    msg = re.sub(r"[A-Za-z]:\\[^\s\"']+", "[redacted-path]", msg)
+    msg = re.sub(r"/(?:Users|home|var|tmp|data|workspace|etc)/[^\s\"']+", "[redacted-path]", msg)
+    return msg[:240] or "Job execution failed"
+
+
 def work(job_id: str, req: CollectRequest) -> None:
     try:
         store({"job_id": job_id, "status": "running"})
@@ -151,7 +165,7 @@ def work(job_id: str, req: CollectRequest) -> None:
             result = collect(req.url, DATA_DIR, req.max_pages, req.max_media)
         store({"job_id": job_id, "status": "done", "result": result})
     except Exception as exc:
-        store({"job_id": job_id, "status": "failed", "error": str(exc)[:400]})
+        store({"job_id": job_id, "status": "failed", "error": _sanitize_job_error(exc)})
     finally:
         slots.release()
 
@@ -167,7 +181,7 @@ def work_pipeline(job_id: str, req: PipelineRequest) -> None:
         )
         store({"job_id": job_id, "status": "done", "result": result})
     except Exception as exc:
-        store({"job_id": job_id, "status": "failed", "error": str(exc)[:400]})
+        store({"job_id": job_id, "status": "failed", "error": _sanitize_job_error(exc)})
     finally:
         slots.release()
 

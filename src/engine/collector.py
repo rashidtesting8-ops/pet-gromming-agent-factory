@@ -620,7 +620,12 @@ def download_one(
         if not blob:
             return {**base, "status": "empty"}
         dimensions: list[int] | None = None
-        if ctype.startswith("image/") and ext != ".svg":
+        if ext == ".svg":
+            try:
+                blob = bytearray(sanitize_svg_bytes(blob))
+            except ValueError:
+                return {**base, "status": "invalid_image"}
+        elif ctype.startswith("image/"):
             try:
                 with Image.open(io.BytesIO(blob)) as im:
                     dimensions = [im.width, im.height]
@@ -649,6 +654,28 @@ def download_one(
     finally:
         if res is not None:
             res.close()
+
+
+def sanitize_svg_bytes(raw: bytes | bytearray) -> bytes:
+    """Strip executable tags, inline event handlers, and javascript: URIs from SVG payloads."""
+    text = bytes(raw).decode("utf-8", errors="replace")
+    if "<svg" not in text.lower():
+        raise ValueError("Invalid SVG content: missing <svg> root")
+    soup = BeautifulSoup(text, "html.parser")
+    for bad_tag in soup.find_all(["script", "foreignobject", "iframe", "object", "embed"]):
+        bad_tag.decompose()
+    for el in soup.find_all(True):
+        for attr in list(el.attrs.keys()):
+            attr_l = attr.lower()
+            val_raw = el.attrs[attr]
+            val_str = " ".join(val_raw) if isinstance(val_raw, list) else str(val_raw)
+            if (
+                attr_l.startswith("on")
+                or "javascript:" in val_str.lower()
+                or "data:text/html" in val_str.lower()
+            ):
+                del el.attrs[attr]
+    return str(soup).encode("utf-8")
 
 
 def collect(

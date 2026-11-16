@@ -13,6 +13,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -64,8 +65,11 @@ def _atomic_write_text(target: Path, content: str) -> None:
         raise
 
 
+PROJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
 def _resolve_project_root(project_id: str, projects_dir: Path) -> Path:
-    if ".." in project_id or "/" in project_id or "\\" in project_id:
+    if not PROJECT_ID_RE.match(project_id):
         raise HTTPException(status_code=400, detail="Invalid project identifier")
     project_root = (projects_dir / project_id).resolve()
     if not project_root.is_relative_to(projects_dir.resolve()) or not project_root.is_dir():
@@ -396,7 +400,7 @@ def create_cockpit_app(
         import threading
 
         pid = req.project_id.strip()
-        if not pid or ".." in pid or "/" in pid or "\\" in pid:
+        if not PROJECT_ID_RE.match(pid):
             raise HTTPException(status_code=400, detail="Invalid project_id")
         project_root = (resolved_projects_dir / pid).resolve()
         if not project_root.is_relative_to(resolved_projects_dir.resolve()):
@@ -404,8 +408,9 @@ def create_cockpit_app(
         for sub in ("research", "design", "website", "qa/screenshots", "assets/optimized"):
             (project_root / sub).mkdir(parents=True, exist_ok=True)
         b_name = req.business_name.strip() or pid
-        p_url = req.primary_url.strip()
-        initial_status = "running" if (req.run_now and p_url) else "awaiting_approval"
+        raw_url = req.primary_url.strip()
+        p_url = raw_url or f"https://{pid}.local/"
+        initial_status = "running" if (req.run_now and raw_url) else "awaiting_approval"
         conn = connect_db(db_path)
         try:
             init_db(conn)
