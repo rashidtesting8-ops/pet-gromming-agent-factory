@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: ${N8N_IMAGE:-n8nio/n8n:latest}
+    image: ${N8N_IMAGE:-n8nio/n8n:1.76.1}
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678"
@@ -27,6 +27,12 @@ services:
       - "127.0.0.1:8787:8787"
     environment:
       - PROJECTS_DIR=/data/projects
+      - EDITVISTA_API_TOKEN=${EDITVISTA_API_TOKEN:-local-dev-cockpit-token}
+      - EDITVISTA_API_TOKEN=${EDITVISTA_API_TOKEN:-local-dev-cockpit-token}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./projects:/data/projects
     shm_size: 1g
@@ -45,6 +51,12 @@ services:
       - "127.0.0.1:8888:8888"
     environment:
       - PROJECTS_DIR=/data/projects
+      - EDITVISTA_API_TOKEN=${EDITVISTA_API_TOKEN:-local-dev-cockpit-token}
+      - EDITVISTA_API_TOKEN=${EDITVISTA_API_TOKEN:-local-dev-cockpit-token}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./projects:/data/projects
     depends_on:

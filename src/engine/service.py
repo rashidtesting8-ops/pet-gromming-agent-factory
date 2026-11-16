@@ -96,53 +96,10 @@ def _infer_business_name(url: str, explicit_name: str | None) -> str:
 
 
 def _container_safe_qa_runner(project_folder: str | Path, **kwargs: Any) -> Any:
-    """Run Playwright 5-viewport QA when available, or static verification in slim containers."""
+    """Run Playwright 5-viewport QA and fail closed if the browser engine is unavailable."""
     import app.pipeline as pipe_mod
-    from app.approval import stage_release_candidate
-    from app.qa_engine import BREAKPOINTS, QADefectReport, ViewportQAResult
 
-    try:
-        return pipe_mod.run_qa_engine(project_folder, **kwargs)
-    except Exception:
-        import hashlib
-
-        from PIL import Image
-
-        root = Path(project_folder).resolve()
-        standalone_path, _ = stage_release_candidate(root)
-        sha = hashlib.sha256(standalone_path.read_bytes()).hexdigest()
-        shots_dir = root / "qa" / "screenshots"
-        shots_dir.mkdir(parents=True, exist_ok=True)
-        viewports: list[ViewportQAResult] = []
-        for label, width in BREAKPOINTS:
-            shot_file = shots_dir / f"{width}px.png"
-            if not shot_file.is_file():
-                Image.new("RGB", (width, 900), color=(250, 248, 245)).save(shot_file)
-            viewports.append(
-                ViewportQAResult(
-                    label=label,
-                    width=width,
-                    screenshot_path=f"qa/screenshots/{width}px.png",
-                    horizontal_overflow=False,
-                    scroll_width=width,
-                    inner_width=width,
-                    broken_assets=[],
-                    console_errors=[],
-                    contrast_failures=[],
-                    passed=True,
-                )
-            )
-        report = QADefectReport(
-            project_id=root.name,
-            target_url="http://127.0.0.1/release-candidate/standalone.html",
-            passed=True,
-            candidate_sha256=sha,
-            viewports=viewports,
-        )
-        (root / "qa" / "qa-report.json").write_text(
-            report.model_dump_json(indent=2), encoding="utf-8"
-        )
-        return report
+    return pipe_mod.run_qa_engine(project_folder, **kwargs)
 
 
 def _run_full_pipeline_sync(
@@ -222,49 +179,19 @@ def health() -> dict[str, bool]:
 
 @app.middleware("http")
 async def _enforce_service_auth_and_origin(request: Any, call_next: Any) -> Any:
-    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-        origin = request.headers.get("origin", "").strip()
-        if origin:
-            from urllib.parse import urlparse
+    from engine.auth import enforce_api_security
 
-            parsed_host = (urlparse(origin).hostname or "").lower()
-            if parsed_host not in ("127.0.0.1", "localhost", "testserver", "collector"):
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Cross-origin state-changing request forbidden"},
-                )
-        configured_token = (
-            os.environ.get("EDITVISTA_API_TOKEN", "").strip()
-            or os.environ.get("SERVICE_API_TOKEN", "").strip()
-        )
-        req_host = (request.headers.get("host", "").split(":")[0] or "").strip().lower()
-        if (
-            req_host
-            and req_host not in ("127.0.0.1", "localhost", "::1", "testserver", "collector")
-            and not configured_token
-        ):
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Non-loopback requests require EDITVISTA_API_TOKEN"},
-            )
-        auth_hdr = request.headers.get("authorization", "").strip()
-        api_key_hdr = request.headers.get("x-api-key", "").strip()
-        require_auth_hdr = request.headers.get("x-require-auth", "").strip()
-        if configured_token or auth_hdr or api_key_hdr or require_auth_hdr:
-            bearer = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else ""
-            supplied = bearer or api_key_hdr
-            if not configured_token or supplied != configured_token:
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Unauthorized: valid service API token required"},
-                )
-    return await call_next(request)
+    configured_token = (
+        os.environ.get("EDITVISTA_API_TOKEN", "").strip()
+        or os.environ.get("SERVICE_API_TOKEN", "").strip()
+    )
+    return await enforce_api_security(
+        request,
+        call_next,
+        configured_token=configured_token,
+        allowed_hosts=("127.0.0.1", "localhost", "::1", "testserver", "collector"),
+        unauthorized_detail="Unauthorized: valid service API token required",
+    )
 
 
 @app.post("/jobs", status_code=202)
@@ -325,10 +252,8 @@ def approve_pipeline_project(
             "project_id": safe_id,
             "version": req.version,
             "release_tree_sha256": tree_sha,
-            "ghl_snippet_path": str(DATA_DIR / safe_id / "delivery" / "ghl-ready.html"),
-            "approved_homepage_path": str(
-                DATA_DIR / safe_id / "delivery" / "approved-homepage.html"
-            ),
+            "ghl_snippet_path": "delivery/ghl-ready.html",
+            "approved_homepage_path": "delivery/approved-homepage.html",
         }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -306,49 +306,23 @@ def create_cockpit_app(
 
     @app.middleware("http")
     async def _enforce_auth_and_origin(request: Request, call_next: Any) -> Any:
-        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-            origin = request.headers.get("origin", "").strip()
-            if origin:
-                from urllib.parse import urlparse
+        from engine.auth import enforce_api_security
 
-                parsed_host = (urlparse(origin).hostname or "").lower()
-                if parsed_host not in ("127.0.0.1", "localhost", "testserver"):
-                    from fastapi.responses import JSONResponse
-
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Cross-origin state-changing request forbidden"},
-                    )
-            configured_token = (
-                api_token
-                if api_token is not None
-                else (
-                    os.environ.get("EDITVISTA_API_TOKEN", "").strip()
-                    or os.environ.get("COCKPIT_API_TOKEN", "").strip()
-                )
+        configured_token = (
+            api_token
+            if api_token is not None
+            else (
+                os.environ.get("EDITVISTA_API_TOKEN", "").strip()
+                or os.environ.get("COCKPIT_API_TOKEN", "").strip()
             )
-            req_host = (request.headers.get("host", "").split(":")[0] or "").strip().lower()
-            if req_host and req_host not in LOOPBACK_HOSTS and not configured_token:
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Non-loopback requests require EDITVISTA_API_TOKEN"},
-                )
-            auth_hdr = request.headers.get("authorization", "").strip()
-            api_key_hdr = request.headers.get("x-api-key", "").strip()
-            require_auth_hdr = request.headers.get("x-require-auth", "").strip()
-            if configured_token or auth_hdr or api_key_hdr or require_auth_hdr:
-                bearer = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else ""
-                supplied = bearer or api_key_hdr
-                if not configured_token or supplied != configured_token:
-                    from fastapi.responses import JSONResponse
-
-                    return JSONResponse(
-                        status_code=401,
-                        content={"detail": "Unauthorized: valid operator API token required"},
-                    )
-        return await call_next(request)
+        )
+        return await enforce_api_security(
+            request,
+            call_next,
+            configured_token=configured_token,
+            allowed_hosts=LOOPBACK_HOSTS,
+            unauthorized_detail="Unauthorized: valid operator API token required",
+        )
 
     @app.get("/api/health")
     def health_check() -> dict[str, str]:
@@ -770,7 +744,7 @@ def create_cockpit_app(
     def serve_preview(project_id: str, subpath: str) -> Response:
         root = _resolve_project_root(project_id, resolved_projects_dir)
         target: Path | None = None
-        for base in (root / "release-candidate", root / "website", root):
+        for base in (root / "release-candidate", root / "website"):
             try:
                 candidate = _resolve_safe_file(base, subpath)
                 target = candidate
@@ -783,27 +757,61 @@ def create_cockpit_app(
 
         mime, _ = mimetypes.guess_type(target.name)
         content_type = mime or "application/octet-stream"
+        headers: dict[str, str] = {
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox allow-scripts; default-src 'self' 'unsafe-inline'",
+        }
+        if target.suffix.lower() == ".svg":
+            headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
+            headers["Content-Disposition"] = f'attachment; filename="{target.name}"'
         if target.suffix == ".html":
             content_type = "text/html; charset=utf-8"
             html_str = target.read_text(encoding="utf-8")
             html_str = html_str.replace(
                 'src="../assets/', f'src="/assets/{project_id}/assets/'
             )
-            return Response(content=html_str.encode("utf-8"), media_type=content_type)
-        return Response(content=target.read_bytes(), media_type=content_type)
+            return Response(
+                content=html_str.encode("utf-8"), media_type=content_type, headers=headers
+            )
+        return Response(content=target.read_bytes(), media_type=content_type, headers=headers)
 
     @app.get("/screenshots/{project_id}/{filename}")
     def serve_screenshot(project_id: str, filename: str) -> Response:
         root = _resolve_project_root(project_id, resolved_projects_dir)
         target = _resolve_safe_file(root / "qa" / "screenshots", filename)
-        return Response(content=target.read_bytes(), media_type="image/png")
+        return Response(
+            content=target.read_bytes(),
+            media_type="image/png",
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
 
     @app.get("/assets/{project_id}/{subpath:path}")
     def serve_asset(project_id: str, subpath: str) -> Response:
         root = _resolve_project_root(project_id, resolved_projects_dir)
-        target = _resolve_safe_file(root, subpath)
+        clean_sub = subpath.lstrip("/\\")
+        if clean_sub.startswith("assets/"):
+            clean_sub = clean_sub[len("assets/") :]
+        target: Path | None = None
+        for base in (root / "assets", root / "website" / "assets"):
+            try:
+                target = _resolve_safe_file(base, clean_sub)
+                break
+            except HTTPException:
+                continue
+        if not target or not target.is_file():
+            raise HTTPException(status_code=404, detail="Asset not found")
         mime, _ = mimetypes.guess_type(target.name)
-        return Response(content=target.read_bytes(), media_type=mime or "image/jpeg")
+        headers: dict[str, str] = {
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+        }
+        if target.suffix.lower() == ".svg":
+            headers["Content-Disposition"] = f'attachment; filename="{target.name}"'
+        return Response(
+            content=target.read_bytes(),
+            media_type=mime or "image/jpeg",
+            headers=headers,
+        )
 
     return app
 

@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /workspace
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace/src:/workspace PATH="/workspace/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace/src:/workspace PATH="/workspace/.venv/bin:$PATH" PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=ghcr.io/astral-sh/uv:0.6.6 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra browser \
