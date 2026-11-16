@@ -276,9 +276,9 @@ flowchart LR
 | **Browser Engine** | Playwright Chromium | `==1.55.0` pinned | Dynamic gallery extraction and 5-viewport automated visual QA runner. |
 | **Subprocess Ingestion** | `gallery-dl` | `==1.30.0` pinned | Subprocess-isolated media metadata extraction from public profiles. |
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
-| **Operator Cockpit & API** | FastAPI, Uvicorn | `fastapi >= 0.115`, `uvicorn >= 0.32` | Interactive review cockpit UI (`127.0.0.1:8787`), scoped GHL exporter, and async job worker. |
-| **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:latest` | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 178-test suite across 31 modules. |
+| **Operator Cockpit & Studio UI** | FastAPI, TypeScript (`ES2022`) | `fastapi >= 0.115`, `Node >= 22.6` | Monograph Studio Cockpit UI (`127.0.0.1:8788`), compiled `app/static/studio.js` bundle, scoped GHL exporter, and async worker. |
+| **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:1.76.1` pinned | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 220-test suite across 38 modules. |
 
 ---
 
@@ -303,8 +303,14 @@ pet-gromming-agent-factory/
 │   └── BUDGET_AND_QUALITY.md                # Spend controls, storage limits, and QA threshold metrics
 ├── examples/
 │   └── BUSINESS_INPUT_EXAMPLE.json          # Reference JSON schema for business intake workflows
+├── frontend/
+│   ├── tsconfig.json                            # Strict TypeScript compiler configuration (ES2022 + DOM)
+│   └── src/
+│       ├── types.ts                             # Strict TypeScript interfaces for DoD gates, section hashes & GHL simulation
+│       └── studio.ts                            # EditVistaStudioController (8-gate DoD ledger, 5-viewport resizer, section inspector)
 ├── scripts/
-│   └── freeze_site.py                       # Safe collector-based website freezer creating golden regression fixtures
+│   ├── build_frontend.mjs                       # Zero-dependency TypeScript compiler producing app/static/studio.js
+│   └── freeze_site.py                           # Safe collector-based website freezer creating golden regression fixtures
 ├── n8n/
 │   ├── 01-client-intake-and-website-build.json      # 7-node client intake & 9-stage build trigger workflow
 │   ├── 02-live-build-telemetry-and-cockpit-router.json # 7-node build telemetry & Cockpit review router workflow
@@ -312,9 +318,10 @@ pet-gromming-agent-factory/
 │   └── 04-interactive-one-click-luxury-demo.json    # 7-node one-click interactive studio demo workflow
 ├── src/engine/
 │   ├── __init__.py
+│   ├── auth.py                                  # Shared constant-time bearer auth, Origin & non-loopback Host middleware
 │   ├── contracts/
-│   │   └── __init__.py                      # Pydantic v2 domain schemas (StageInput, StageOutput, Asset, Claim)
-│   ├── collector.py                         # SSRF-shielded web crawler, HTML sanitizer & snapshot archiver
+│   │   └── __init__.py                          # Pydantic v2 domain schemas (StageInput, StageOutput, Asset, Claim)
+│   ├── collector.py                             # SSRF-shielded web crawler, HTML/SVG sanitizer & snapshot archiver
 │   ├── browser_gallery.py                   # Headless Playwright dynamic gallery discovery with SSRF route guard
 │   ├── social_collect.py                    # Subprocess-isolated gallery-dl runner with EXIF stripping
 │   ├── import_meta_export.py                # Meta "Download your information" parser with zip-bomb guards
@@ -327,8 +334,12 @@ pet-gromming-agent-factory/
 │       ├── __init__.py                      # LLM module public interface exports
 │       └── adapter.py                       # Hardened provider-agnostic adapter, budget engine & secret redactor
 ├── app/
+│   ├── static/
+│   │   └── studio.js                            # Compiled TypeScript Monograph Studio bundle
 │   ├── templates/
-│   │   └── review_cockpit.html              # Sandboxed Operator Review Cockpit UI template
+│   │   ├── dashboard.html                       # Monograph Studio Workbench & URL intake UI
+│   │   └── review_cockpit.html                  # Monograph Studio 8-Gate DoD Review Cockpit UI
+│   ├── claim_scanner.py                         # Non-acknowledgeable zero-fabrication HTML claim scanner
 │   ├── schema.sql                           # SQLite relational schema (projects, job_runs, facts, provenance)
 │   ├── db.py                                # SQLite WAL connection factory, BEGIN IMMEDIATE transactions & models
 │   ├── fact_extractor.py                    # Locale-aware fact extractor with UK/US/PK parsing & conflict detection
@@ -647,15 +658,15 @@ BASELINE EXTRACTION REPORT: PET GROOMING FACT EXTRACTOR
 =======================================================================================
 Category               | Extracted | Expected | Precision | Recall   | Verified Precision
 ---------------------------------------------------------------------------------------
-address                | 15        | 12       |    100.0% |   125.0% |             100.0%
+address                | 15        | 12       |     80.0% |   100.0% |             100.0%
 business_name          | 12        | 12       |    100.0% |   100.0% |             100.0%
 cancellation_policy    | 8         | 6        |     75.0% |   100.0% |             100.0%
 hours                  | 12        | 12       |     91.7% |    91.7% |             100.0%
-phone                  | 14        | 12       |    100.0% |   116.7% |             100.0%
+phone                  | 14        | 12       |     85.7% |   100.0% |             100.0%
 pricing                | 26        | 19       |     69.2% |    94.7% |              63.2%
 services               | 20        | 13       |     65.0% |   100.0% |              65.0%
 ---------------------------------------------------------------------------------------
-OVERALL TOTALS         | 107       | 86       |     83.2% |   103.5% |              83.1%
+OVERALL TOTALS         | 107       | 86       |     78.5% |    97.7% |              83.1%
 =======================================================================================
 ```
 
@@ -680,20 +691,26 @@ The repository includes four production-grade, 7-node branching workflows (`n8n/
 
 The Operator Cockpit runs on `127.0.0.1:8787` (or `:8888`) and provides side-by-side inspection, live claim provenance auditing, surgical section patching, release candidate approval, and GoHighLevel snippet generation:
 
-- `GET /` — Serves the interactive Operator Cockpit dashboard listing all projects and review statuses.
+- `GET /` & `GET /dashboard` — Serves the Monograph Studio Workbench listing all projects, review statuses, and the New Business URL Intake bar (`run_now`).
+- `GET /static/studio.js` — Serves the compiled TypeScript `EditVistaStudioController` bundle (`X-Content-Type-Options: nosniff`).
 - `GET /api/health` — Liveness probe returning `{"status": "ok"}`.
-- `POST /api/projects` — Creates a new project workspace from operator intake (`business_name`, `primary_url`, `project_id`) or launches a background build.
-- `GET /review/{project_id}` — Serves the side-by-side Operator Review Cockpit UI (`app/templates/review_cockpit.html`) with a sandboxed preview iframe (`sandbox="allow-scripts"`).
-- `GET /api/projects/{project_id}/summary` — Returns full project review summary JSON (`verified_claims_count`, `flagged_claims_count`, `curated_assets`, `screenshots`, `mvf_status`).
+- `POST /api/projects` — Creates a strictly slug-validated (`^[a-z0-9][a-z0-9_-]{0,62}$`) project workspace and optionally launches a background pipeline build (`run_now: true`).
+- `POST /api/projects/{project_id}/resume` — Resumes an interrupted or failed pipeline run from the last completed SQLite idempotency checkpoint.
+- `GET /review/{project_id}` — Serves the Monograph Studio Review Cockpit UI (`app/templates/review_cockpit.html`) with the 8-gate DoD ribbon, interactive 5-viewport resizer, and sandboxed preview iframe (`sandbox="allow-scripts"`).
+- `GET /api/projects/{project_id}/dod-status` — Returns real-time 8-gate DoD compliance telemetry, section SHA-256 hashes, claim scanner violations, and workspace storage/archive metrics.
+- `GET /api/projects/{project_id}/section/{section_name}` — Returns canonical section HTML and its 64-char SHA-256 digest for the live surgical section editor.
+- `GET /api/projects/{project_id}/summary` — Returns full project review summary JSON (`fact_metrics`, `assets`, `screenshots`, `technical_qa_passed`, `visual_critique_status`).
 - `POST /api/projects/{project_id}/verify-fact` — Toggles human operator verification (`verified` / `needs_review`) on an extracted claim in `research/business-facts.json` and SQLite.
-- `POST /api/projects/{project_id}/confirm-rights` — Updates `rights_confirmed_for_preview` for a specified asset in `research/asset-manifest.json`.
-- `POST /api/projects/{project_id}/revise-section` — Validates and applies surgical HTML revision to `website/sections/<section_name>.html`, rebuilds `website/index.html`, and re-stages `release-candidate/`.
-- `POST /api/projects/{project_id}/approve` — Validates QA freshness and asset rights, freezes read-only deliverables into `delivery/` and `versions/<version>/`, writes `release-manifest.json`, and generates archive zip.
-- `GET /api/projects/{project_id}/ghl-export` — Compiles scoped GoHighLevel snippet with absolute CDN URL rewriting and simulation verification.
-- `GET /ghl-preview/{project_id}` — Renders live GoHighLevel Funnel Host Simulator page embedding the scoped `#ghl-ev-engine-root-{project_id}` container within a hostile host stylesheet.
-- `GET /preview/{project_id}/{subpath:path}` — Safely serves candidate or website HTML/CSS inside the sandboxed preview frame with path-traversal protection.
+- `POST /api/projects/{project_id}/confirm-rights` — Updates `rights_confirmed_for_preview` for a single asset and appends to `research/rights-audit.jsonl`.
+- `POST /api/projects/{project_id}/confirm-all-rights` — Bulk-confirms preview/export rights across all project assets and signs `research/rights-audit.jsonl`.
+- `POST /api/projects/{project_id}/revise-section` — Validates and applies a surgical HTML revision to `website/sections/<section_name>.html` while preserving all sibling section SHA-256 hashes.
+- `POST /api/projects/{project_id}/approve` — Validates QA freshness, claim scanner (`0` violations), and asset rights signatures; freezes read-only deliverables into `delivery/` and `versions/<version>/`; writes `release-manifest.json`; and creates the verified archive zip.
+- `POST /api/projects/{project_id}/prune` — Executes dry-run (`mode="plan"`) or safe staging cleanup (`mode="prune"`) after verifying the backup archive zip.
+- `GET /api/projects/{project_id}/ghl-export` — Compiles scoped GoHighLevel snippet with `@keyframes` namespacing, absolute CDN URL rewriting, and simulation verification.
+- `GET /ghl-preview/{project_id}` — Renders live GoHighLevel Funnel Host Simulator page embedding `#ghl-ev-engine-root-{project_id}` inside a hostile host stylesheet.
+- `GET /preview/{project_id}/{subpath:path}` — Serves `release-candidate/` or `website/` files inside a CSP sandbox (`X-Content-Type-Options: nosniff`).
 - `GET /screenshots/{project_id}/{filename}` — Serves 5-viewport PNG screenshots from `qa/screenshots/`.
-- `GET /assets/{project_id}/{subpath:path}` — Serves local project media assets for cockpit thumbnails and preview rendering.
+- `GET /assets/{project_id}/{subpath:path}` — Serves `assets/` media files with `Content-Security-Policy: sandbox; default-src 'none'` and `Content-Disposition: attachment` for `.svg`.
 
 ### 13.2 Local Worker & Pipeline Service (`src/engine/service.py`)
 
@@ -712,8 +729,8 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Run linting, static type analysis, and all 189 automated tests
-uv run ruff check . && uv run pyright && uv run pytest -v
+# Compile TypeScript studio bundle, then run linting, static type analysis, and all 220 automated tests
+node scripts/build_frontend.mjs && uv run ruff check . && uv run pyright && uv run pytest -v
 ```
 
 Or using `make` / `just`:
@@ -729,9 +746,7 @@ make test        # uv run pytest
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
 | `tests/test_studio_frontend_dod.py` | 2 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune`, and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
-| :--- | :---: | :--- |
 | `tests/test_security_review_fixes.py` | 7 | Security code review regression suite: verifies `_container_safe_qa_runner` fails closed without fabricating `passed=True` QA reports, blocks `/preview/` and `/assets/` access to `research/`, enforces CSP sandbox + `nosniff` + `Content-Disposition: attachment` on SVGs, enforces `hmac.compare_digest` token auth on `GET` endpoints (`/api/projects/.../summary`, `/jobs/{id}`), sanitizes/redacts internal job error paths & secrets, strips `<script>`/`on*`/`javascript:` from downloaded SVGs at crawl time (`sanitize_svg_bytes`), enforces strict `PROJECT_ID_RE` slug allow-list in Cockpit, and verifies `EDITVISTA_API_TOKEN` headers in all `n8n/*.json` workflows. |
-| :--- | :---: | :--- |
 | `tests/test_remediation_adversarial.py` | 10 | Adversarial regression suite for audit findings F1–F8: short approval token rejection, corrupted `visual-critique.json` blocking, mandatory `rights-audit.jsonl` enforcement, Cockpit bearer token & fail-closed non-loopback bind/host auth (`validate_bind_security`), `unavailable` critic blocking, fast non-vision provider error, targeted CSS revision scoping, perceptual dedupe + `DecompressionBombError` guard, and `@keyframes` GHL namespacing. |
 | `tests/test_claim_scanner.py` | 8 | Unsupported-claim scanner unit tests: blocks unverified money, percentage, phone, email, experience, and credential tokens while ignoring `<style>`/`<script>` blocks and allowing verified-fact-backed copy. |
 | `tests/test_cockpit_e2e_controls.py` | 1 | Cockpit end-to-end intake & recovery controls: verifies `POST /api/projects` (`run_now: true`), `POST /api/projects/{id}/resume`, `GET /dashboard` Run Pipeline Now form, and `GET /review/{id}` Resume Job button. |
