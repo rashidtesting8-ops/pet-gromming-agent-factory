@@ -244,3 +244,62 @@ def test_studio_9stage_telemetry_and_guide_ui(tmp_path: Path) -> None:
     _, _, js_body = _asgi_req(app, "GET", "/static/studio.js")
     assert "openStageMonitor" in js_body
     assert "togglePipelineGuide" in js_body
+
+
+def test_pre_approval_prune_plan_and_conflict_name_sanitization(tmp_path: Path) -> None:
+    from app.art_director import generate_art_direction
+    from app.generator import generate_website
+
+    projects_dir = tmp_path / "projects"
+    _scaffold_cockpit_project(projects_dir, "draft-paws", rights_confirmed=False)
+    proj = projects_dir / "draft-paws"
+    # Simulate an unapproved draft (remove delivery/ so it stays pre-approval)
+    import shutil
+
+    if (proj / "delivery").exists():
+        shutil.rmtree(proj / "delivery")
+
+    # Inject a conflicted business_name into business-facts.json to test sanitization barrier
+    facts_path = proj / "research" / "business-facts.json"
+    facts_payload = json.loads(facts_path.read_text(encoding="utf-8"))
+    facts_payload["facts"].insert(
+        0,
+        {
+            "fact_id": "f-conflict-name",
+            "project_id": "draft-paws",
+            "category": "business_name",
+            "claim_key": "business_name",
+            "claim_value": (
+                "Draft Paws Salon (conflicts with Home - Draft Paws, Cookies Policy - Draft Paws)"
+            ),
+            "source_url": "https://draftpaws.example/",
+            "source_text_snippet": "Draft Paws Salon",
+            "is_verified": False,
+            "status": "needs_review",
+        },
+    )
+    facts_path.write_text(json.dumps(facts_payload, indent=2), encoding="utf-8")
+
+    # Run art direction + generation: rendered HTML must NEVER contain "(conflicts with"
+    generate_art_direction(proj)
+    generate_website(proj)
+    rendered_html = (proj / "website" / "index.html").read_text(encoding="utf-8")
+    assert "conflicts with" not in rendered_html.lower()
+    assert "cookies policy" not in rendered_html.lower()
+
+    # Pre-approval Cockpit prune plan returns non-blocking 200 summary instead of error
+    app = create_cockpit_app(projects_dir=projects_dir)
+    s_plan, _, b_plan = _asgi_req(app, "POST", "/api/projects/draft-paws/prune", {"mode": "plan"})
+    assert s_plan == 200, b_plan
+    plan_data = json.loads(b_plan)
+    assert plan_data["mode"] == "plan"
+    assert plan_data["pre_approval"] is True
+    assert "Approve & Freeze Release" in plan_data["note"]
+
+    # Destructive prune remains strictly blocked before approval with clear guidance
+    s_prn, _, b_prn = _asgi_req(app, "POST", "/api/projects/draft-paws/prune", {"mode": "prune"})
+    assert s_prn == 400
+    assert "Approve & Freeze Release" in b_prn
+
+    _, _, html_rev = _asgi_req(app, "GET", "/review/draft-paws")
+    assert 'id="ev-btn-safe-prune"' in html_rev

@@ -256,6 +256,64 @@ def verify_claim_against_html(
     return snippet in sanitized_text or snippet in raw_html_unescaped
 
 
+_NON_BUSINESS_JSONLD_TYPES = frozenset(
+    {
+        "webpage",
+        "aboutpage",
+        "contactpage",
+        "collectionpage",
+        "faqpage",
+        "itempage",
+        "profilepage",
+        "searchresultspage",
+        "breadcrumblist",
+        "listitem",
+        "imageobject",
+        "videoobject",
+        "mediaobject",
+        "service",
+        "offer",
+        "offercatalog",
+        "product",
+        "review",
+        "person",
+        "postaladdress",
+        "entrypoint",
+        "readaction",
+        "searchaction",
+        "thing",
+        "openinghoursspecification",
+    }
+)
+_BUSINESS_JSONLD_TYPES = frozenset(
+    {
+        "organization",
+        "localbusiness",
+        "petstore",
+        "store",
+        "healthandbeautybusiness",
+        "veterinarycare",
+        "professionalservice",
+        "website",
+        "corporation",
+        "place",
+    }
+)
+
+
+def _is_business_jsonld_entity(item: dict[str, Any]) -> bool:
+    raw_type = item.get("@type")
+    if raw_type is None:
+        return True
+    type_list = raw_type if isinstance(raw_type, list) else [raw_type]
+    tokens = {str(t).strip().split("/")[-1].lower() for t in type_list if str(t).strip()}
+    if not tokens:
+        return True
+    if tokens & _BUSINESS_JSONLD_TYPES:
+        return True
+    return not bool(tokens <= _NON_BUSINESS_JSONLD_TYPES)
+
+
 def _extract_json_ld(soup: BeautifulSoup, url: str) -> list[CandidateClaim]:
     """Priority 1: Extract business facts from schema.org JSON-LD scripts."""
     candidates: list[CandidateClaim] = []
@@ -277,9 +335,9 @@ def _extract_json_ld(soup: BeautifulSoup, url: str) -> list[CandidateClaim]:
             if not isinstance(item, dict):
                 continue
 
-            # Business Name
+            # Business Name (only from Organization/LocalBusiness/WebSite entities, never WebPage)
             name = item.get("name") or item.get("legalName")
-            if isinstance(name, str) and name.strip():
+            if isinstance(name, str) and name.strip() and _is_business_jsonld_entity(item):
                 clean_name, inj = sanitize_prompt_injection(name.strip())
                 if clean_name and not inj:
                     candidates.append(

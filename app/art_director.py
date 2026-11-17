@@ -208,25 +208,46 @@ class CreativeBrief(BaseModel):
     generated_at: datetime = Field(default_factory=_utc_now)
 
 
+_CONFLICT_SUFFIX_RE = re.compile(r"\s*\(conflicts with\b[^)]*\)", re.IGNORECASE)
+
+
+def clean_display_fact(raw_value: str, fallback: str = "") -> str:
+    """Strip internal conflict audit annotations before rendering display names or phones."""
+    cleaned = _CONFLICT_SUFFIX_RE.sub("", (raw_value or "")).strip()
+    return cleaned or fallback
+
+
 def _detect_taxonomy(
     facts: list[dict[str, Any]],
     project_id: str,
 ) -> tuple[str, str | None, BusinessTaxonomy]:
-    business_name = project_id
-    phone: str | None = None
+    verified_name: str | None = None
+    fallback_name: str | None = None
+    verified_phone: str | None = None
+    fallback_phone: str | None = None
     corpus_parts: list[str] = [project_id.replace("-", " ")]
 
     for fact in facts:
         category = str(fact.get("category", ""))
         key = str(fact.get("claim_key", ""))
-        val = str(fact.get("claim_value", ""))
+        val = clean_display_fact(str(fact.get("claim_value", "")))
         snippet = str(fact.get("source_text_snippet", ""))
-        if category == "business_name" and val.strip():
-            business_name = val.strip()
-        if (category == "phone" or key == "phone") and val.strip() and phone is None:
-            phone = val.strip()
+        is_verified = bool(fact.get("is_verified")) and fact.get("status") == "verified"
+
+        if category == "business_name" and val:
+            if is_verified and verified_name is None:
+                verified_name = val
+            elif fallback_name is None:
+                fallback_name = val
+        if (category == "phone" or key == "phone") and val:
+            if is_verified and verified_phone is None:
+                verified_phone = val
+            elif fallback_phone is None:
+                fallback_phone = val
         corpus_parts.extend([key, val, snippet])
 
+    business_name = verified_name or fallback_name or project_id
+    phone = verified_phone or fallback_phone
     corpus = " ".join(corpus_parts).lower()
     is_mobile = any(kw in corpus for kw in MOBILE_KEYWORDS)
     serves_cats = any(kw in corpus for kw in CAT_KEYWORDS)

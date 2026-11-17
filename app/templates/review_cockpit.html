@@ -148,6 +148,7 @@
       align-self: flex-start;
     }
     .btn-revise:hover { background: var(--sheet); color: var(--ink); }
+    .btn-revise:disabled { opacity: 0.48; cursor: not-allowed; pointer-events: auto; }
     .btn-sm {
       background: var(--paper);
       color: var(--ink);
@@ -539,7 +540,7 @@
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
           <button class="btn-secondary" type="button" onclick="runStoragePrune('plan')">Inspect Reclaimable Staging</button>
-          <button class="btn-revise" type="button" onclick="runStoragePrune('prune')">Execute Safe Prune</button>
+          <button id="ev-btn-safe-prune" class="btn-revise" type="button" onclick="runStoragePrune('prune')">Execute Safe Prune</button>
         </div>
         <div id="ev-prune-output" class="panel-meta">Staging prune is unlocked only after immutable release approval and ZIP CRC verification.</div>
       </div>

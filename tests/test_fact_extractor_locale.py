@@ -271,3 +271,76 @@ def test_expired_promotion_status(tmp_path: Path) -> None:
     report = extract_business_facts(proj)
     expired_facts = [f for f in report.facts if f.status == "expired"]
     assert len(expired_facts) >= 1, "Past promotion must be assigned status='expired'"
+
+
+def test_yoast_webpage_json_ld_does_not_conflict_business_name(tmp_path: Path) -> None:
+    """WordPress Yoast @graph WebPage titles must not create false business_name conflicts."""
+    proj = tmp_path / "proj-yoast"
+    research = proj / "research"
+    snaps = research / "snapshots"
+    snaps.mkdir(parents=True, exist_ok=True)
+
+    ld_home = json.dumps(
+        {
+            "@context": "https://schema.org",
+            "@graph": [
+                {"@type": "WebPage", "name": "Welcome to Vanity Fur - Vanity Fur Dog Grooming"},
+                {"@type": "Organization", "name": "Vanity Fur Dog Grooming"},
+                {"@type": "WebSite", "name": "Vanity Fur Dog Grooming"},
+            ],
+        }
+    )
+    ld_cookies = json.dumps(
+        {
+            "@context": "https://schema.org",
+            "@graph": [
+                {"@type": "WebPage", "name": "Cookies Policy - Vanity Fur Dog Grooming"},
+                {"@type": "Organization", "name": "Vanity Fur Dog Grooming"},
+                {"@type": "WebSite", "name": "Vanity Fur Dog Grooming"},
+            ],
+        }
+    )
+
+    html_home = f"""<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Welcome to Vanity Fur - Vanity Fur Dog Grooming</title>
+        <script type="application/ld+json">{ld_home}</script>
+      </head>
+      <body><p>Welcome to Vanity Fur Dog Grooming. Call 01284 827089.</p></body>
+    </html>"""
+    html_cookies = f"""<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Cookies Policy - Vanity Fur Dog Grooming</title>
+        <script type="application/ld+json">{ld_cookies}</script>
+      </head>
+      <body><p>Cookies policy for Vanity Fur Dog Grooming.</p></body>
+    </html>"""
+
+    (snaps / "home.html").write_text(html_home, encoding="utf-8")
+    (snaps / "cookies.html").write_text(html_cookies, encoding="utf-8")
+    pages = [
+        {
+            "url": "https://vanity-fur.example/",
+            "sha256": "home",
+            "title": "Welcome to Vanity Fur - Vanity Fur Dog Grooming",
+            "text": "Welcome to Vanity Fur Dog Grooming. Call 01284 827089.",
+        },
+        {
+            "url": "https://vanity-fur.example/legal/cookies-policy/",
+            "sha256": "cookies",
+            "title": "Cookies Policy - Vanity Fur Dog Grooming",
+            "text": "Cookies policy for Vanity Fur Dog Grooming.",
+        },
+    ]
+    (research / "pages.json").write_text(json.dumps(pages), encoding="utf-8")
+
+    report = extract_business_facts(proj)
+    name_facts = [f for f in report.facts if f.category == "business_name"]
+    assert name_facts, "Expected Organization/WebSite business_name extracted"
+    for nf in name_facts:
+        assert "conflicts with" not in nf.claim_value
+        assert nf.claim_value == "Vanity Fur Dog Grooming"
+        assert nf.is_verified is True
+        assert nf.status == "verified"

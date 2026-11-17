@@ -74,8 +74,11 @@
                                    
                                      
                                   
+                                  
                                     
                             
+                                  
+                         
  
 
                                                                                                   
@@ -402,12 +405,21 @@ class EditVistaStudioController {
 
           renderStorageFooter(data                   )       {
     const el = document.getElementById("ev-storage-readout");
-    if (!el) return;
-    const mb = (data.storage.project_bytes / (1024 * 1024)).toFixed(2);
-    const capMb = (data.storage.max_project_bytes / (1024 * 1024)).toFixed(0);
-    el.textContent = `Workspace: ${mb} MB / ${capMb} MB cap • Backup: ${
-      data.storage.archive_exists ? data.storage.archive_filename : "unarchived"
-    }`;
+    if (el) {
+      const mb = (data.storage.project_bytes / (1024 * 1024)).toFixed(2);
+      const capMb = (data.storage.max_project_bytes / (1024 * 1024)).toFixed(0);
+      el.textContent = `Workspace: ${mb} MB / ${capMb} MB cap • Backup: ${
+        data.storage.archive_exists ? data.storage.archive_filename : "unarchived"
+      }`;
+    }
+    const pruneBtn = document.getElementById("ev-btn-safe-prune")                            ;
+    if (pruneBtn) {
+      const unlocked = Boolean(data.gates.release_frozen && data.gates.archive_verified);
+      pruneBtn.disabled = !unlocked;
+      pruneBtn.title = unlocked
+        ? "Archive verified — safe to prune unneeded staging files"
+        : "Locked until Approve & Freeze Release creates a verified backup archive";
+    }
   }
 
          async confirmAllRights()                {
@@ -449,13 +461,19 @@ class EditVistaStudioController {
       this.showToast(msg, "warn");
       return;
     }
+    const mb = ((data.reclaimed_bytes ?? data.reclaimable_bytes ?? 0) / (1024 * 1024)).toFixed(2);
     const kb = ((data.reclaimed_bytes ?? data.reclaimable_bytes ?? 0) / 1024).toFixed(1);
-    const summary =
-      mode === "prune"
-        ? `Pruned ${data.deleted_count ?? 0} unneeded staging files (${kb} KB reclaimed). Delivery & backup intact.`
-        : `Dry-run plan: ${data.removable_count} staging files removable (${kb} KB reclaimable).`;
+    let summary        ;
+    if (mode === "prune") {
+      const deleted = data.deleted_count ?? data.deleted_files ?? 0;
+      summary = `Pruned ${deleted} unneeded staging files (${kb} KB reclaimed). Delivery & backup intact.`;
+    } else if (data.pre_approval) {
+      summary = `${data.removable_count} draft asset files (${mb} MB). ${data.note ?? ""}`;
+    } else {
+      summary = `Dry-run plan: ${data.removable_count} staging files removable (${kb} KB reclaimable).`;
+    }
     if (statusBox) statusBox.textContent = summary;
-    this.showToast(summary, "ok");
+    this.showToast(summary, data.pre_approval ? "warn" : "ok");
     await this.refreshDoDLedger();
   }
 

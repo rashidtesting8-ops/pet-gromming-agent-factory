@@ -71,8 +71,11 @@ export interface PruneResponse {
   readonly removable_count: number;
   readonly reclaimable_bytes: number;
   readonly deleted_count?: number;
+  readonly deleted_files?: number;
   readonly reclaimed_bytes?: number;
   readonly archive?: string;
+  readonly pre_approval?: boolean;
+  readonly note?: string;
 }
 
 export type StageExecutionState = "pending" | "running" | "completed" | "failed" | "needs_review";

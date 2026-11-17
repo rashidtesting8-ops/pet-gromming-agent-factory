@@ -25,6 +25,7 @@ from app.art_director import (
     FALLBACK_NAVY_HEX,
     FALLBACK_SOFT_SAGE_HEX,
     FALLBACK_WARM_AMBER_HEX,
+    clean_display_fact,
     generate_art_direction,
 )
 from app.reviser import compute_section_hashes
@@ -920,8 +921,9 @@ def generate_website(
     primary_hex = str(brand_data.get("primary_color", FALLBACK_NAVY_HEX))
     secondary_hex = str(brand_data.get("secondary_color", FALLBACK_WARM_AMBER_HEX))
     accent_hex = str(brand_data.get("accent_color", FALLBACK_SOFT_SAGE_HEX))
-    business_name = str(
-        brief_data.get("business_name") or brand_data.get("business_name") or project_id
+    business_name = clean_display_fact(
+        str(brief_data.get("business_name") or brand_data.get("business_name") or project_id),
+        fallback=project_id,
     )
 
     # Extract strictly verified facts
@@ -1039,13 +1041,13 @@ def generate_website(
     pill_items = [html.escape(p) for p in verified_pill_candidates[:3]]
     trust_pills = "".join(f'<span class="ev-trust-pill">{p}</span>' for p in pill_items)
 
-    raw_headline = str(brief_data.get("editorial_headline") or "").strip()
+    raw_headline = clean_display_fact(str(brief_data.get("editorial_headline") or ""))
     if not raw_headline:
         raw_headline = business_name
     elif business_name.lower() not in raw_headline.lower():
         raw_headline = f"{business_name} — {raw_headline}"
 
-    raw_tagline = str(brief_data.get("editorial_tagline") or "").strip()
+    raw_tagline = clean_display_fact(str(brief_data.get("editorial_tagline") or ""))
     if not raw_tagline:
         raw_tagline = ", ".join(verified_services[:2]) if verified_services else business_name
 

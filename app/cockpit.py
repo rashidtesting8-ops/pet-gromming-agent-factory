@@ -823,7 +823,35 @@ def create_cockpit_app(
         try:
             return cleanup(root, mode=mode, confirm=(mode == "prune"))
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            msg = str(exc)
+            is_unapproved = "retained-assets.json" in msg or "BLOCKED" in msg
+            if is_unapproved and mode == "plan":
+                assets_dir = root / "assets"
+                asset_files = (
+                    [p for p in assets_dir.rglob("*") if p.is_file() and not p.is_symlink()]
+                    if assets_dir.is_dir()
+                    else []
+                )
+                asset_bytes = sum(p.stat().st_size for p in asset_files)
+                return {
+                    "mode": "plan",
+                    "pre_approval": True,
+                    "removable_count": len(asset_files),
+                    "reclaimable_bytes": asset_bytes,
+                    "note": (
+                        "Pre-approval staging scan: click 'Confirm All Rights' and "
+                        "'Approve & Freeze Release' to verify backup and unlock Safe Prune."
+                    ),
+                }
+            if is_unapproved:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Safe Prune is locked until you click 'Confirm All Rights' and "
+                        "'Approve & Freeze Release' to create a verified backup."
+                    ),
+                ) from exc
+            raise HTTPException(status_code=400, detail=msg) from exc
 
     @app.post("/api/projects")
     def create_project_endpoint(req: CreateProjectRequest) -> dict[str, Any]:
