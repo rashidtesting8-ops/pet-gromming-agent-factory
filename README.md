@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 220 Passing](https://img.shields.io/badge/tests-220%20passing-brightgreen.svg)
+![Tests: 221 Passing](https://img.shields.io/badge/tests-221%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -60,7 +60,7 @@ Traditional AI site generators suffer from critical production failure modes:
 - **Defense-in-Depth Scraping & Browser Isolation**: A custom single-resolution socket dialer (`dial_verified_socket`) and scoped `SafeHTTPAdapter` validate all returned A/AAAA records before opening TCP connections, permanently blocking private RFC 1918, loopback, link-local, multicast, CGNAT, and cloud metadata subnets. Headless Playwright gallery discovery enforces `page.route("**/*", ...)` network interception to block non-HTTP schemes and private/internal IPs across all sub-resource requests.
 - **Unified Canonical Section State & Surgical Revisions**: The generator modularizes page output into discrete files under `website/sections/<name>.html` and `website/css/<name>.css`, assembling `website/index.html` strictly from section files. Both automated visual-critic revisions (`apply_targeted_revisions`) and manual operator edits (`revise_section`) read, mutate, and re-hash the same canonical section files, guaranteeing 100% SHA-256 preservation of untouched siblings without reverting prior fixes.
 - **Hardened Multimodal LLM Adapter**: Provider-agnostic interface (Groq, Anthropic Claude, OpenAI GPT-4o, Google Gemini, offline FakeProvider) with automatic `provider.default_model` resolution, multi-input caching (keyed by prompt, system prompt, temperature, max tokens, schema, adapter version, and image hashes), SQLite-persisted budget state per `project_id`, upfront cost estimation (with a `1024`-token output reserve when `max_tokens` is omitted), quota tracking for retries/timeouts, and automatic secret redaction.
-- **Human-in-the-Loop Operator Cockpit**: A local web interface (`app/cockpit.py`) provides sandboxed multi-viewport previews (`sandbox="allow-scripts"` across `1440px` down to `360px`), live claim verification audits, interactive asset rights toggles, surgical section revisions, and one-click release approval.
+- **Human-in-the-Loop Operator Cockpit (Monograph Studio v2.0)**: A Swiss editorial local web interface (`app/cockpit.py`, `frontend/src/studio.ts`) provides auto-slugged URL intake, an interactive 9-stage PDF blueprint guide + plain-English explainer grid, live 9-stage execution polling (`GET /api/projects/{id}/stages`), sandboxed multi-viewport previews (`sandbox="allow-scripts"` across `1440px` down to `360px`), 8-gate DoD compliance ledger, live claim verification audits, interactive asset rights toggles, surgical section revisions, and one-click release approval.
 - **Immutable Release Freezing & Asset Signature Verification**: Approval requires human sign-off (`approve` CLI or Cockpit), stale-QA rejection via candidate SHA-256 matching, asset rights confirmation audits, and self-contained snapshot freezing into read-only `delivery/` and `versions/vN/` (including `versions/vN/assets/`) backed by `release-manifest.json`. `verify_release()` validates SHA-256 digests for both HTML deliverables and every referenced asset (`asset_signatures`).
 - **Pre-Export Release Verification & Root-Scoped GHL Isolation**: Exporter and cleanup modules enforce automated integrity verification (`verify_release`) against `delivery/release-manifest.json`, blocking all exports if HTML or referenced assets have been tampered with. GoHighLevel snippets (`delivery/ghl-ready.html`) support CDN URL rewriting, strict `#ghl-ev-engine-root-[business_id]` CSS scoping, and root-scoped `.ev-ghl-scope` IIFE JavaScript encapsulation with `MutationObserver` so multiple embeds can coexist on a single host page.
 - **Golden Regression Corpus & Benchmark Engine**: An extensible 12-business golden test corpus (`tests/golden/`) covering UK/US salons, mobile vans, and table-heavy layouts, evaluated by automated precision/recall benchmarking (`tests/test_golden_extraction.py`) to prevent extraction regressions.
@@ -88,7 +88,7 @@ Traditional AI site generators suffer from critical production failure modes:
 | **5-Viewport Playwright QA Engine** | `app/qa_engine.py`, `src/engine/local_preview.py` | Hosts an ephemeral HTTP server and runs automated audits across `1440px`, `1024px`, `768px`, `390px`, and `360px` viewports for horizontal overflow, 404 assets, console exceptions, broken images (`naturalWidth === 0`), and WCAG AA contrast. |
 | **Visual Critic & Feedback Loop** | `app/visual_critic.py` | Evaluates layout and typography against pet grooming design rules (avoiding repetitive `#F5F5DC` cards, clipped hero headers, or awkward spacing), logging actionable defect items to `qa/visual-critique.json` (hard cap of 3 cycles). |
 | **Hardened Multimodal LLM Adapter** | `src/engine/llm/adapter.py` | Multi-provider adapter (Groq, Anthropic, OpenAI, Gemini, Fake) with `provider.default_model` resolution, SHA-256 disk caching, SQLite-persisted project budget state, upfront cost estimation (`1024`-token reserve when `max_tokens` is unset), call and token caps, retry tracking, and automatic credential redaction. |
-| **Operator Review Cockpit Web UI** | `app/cockpit.py` | Local operator review cockpit (`uvicorn app.cockpit:create_cockpit_app --factory --host 127.0.0.1 --port 8788`) with Dashboard URL intake (`run_now`), **Resume Job** controls (`POST /api/projects/{id}/resume`), sandboxed multi-viewport previews (`sandbox="allow-scripts"`), 5-viewport screenshot inspection, claim provenance audit, interactive asset rights confirmation, surgical section revision, release freezing, fail-closed non-loopback bind/host auth (`EDITVISTA_API_TOKEN`), and live GHL Funnel Host Simulator. |
+| **Operator Review Cockpit Web UI** | `app/cockpit.py`, `frontend/src/studio.ts` | Monograph Studio v2.0 cockpit (`uvicorn app.cockpit:create_cockpit_app --factory --host 127.0.0.1 --port 8788`) featuring auto-slug/name URL intake, interactive 9-stage PDF blueprint strip & plain-English explainer grid, real-time 9-stage telemetry polling (`GET /api/projects/{id}/stages`), **Resume Job** controls (`POST /api/projects/{id}/resume`), 8-gate DoD compliance ledger, zero-overflow 5-viewport previews (`1440px` to `360px`), claim provenance audit, interactive asset rights confirmation, surgical section revision, release freezing, fail-closed non-loopback bind/host auth (`EDITVISTA_API_TOKEN`), and live GHL Funnel Host Simulator. |
 | **Human Approval & Release Candidate Gate** | `app/approval.py` | Stages candidate deliverables to `release-candidate/`; `approve` checks QA candidate SHA-256 matching, audits referenced HTML assets for confirmed rights, freezes read-only HTML and referenced `assets/` in `delivery/` and `versions/vN/`, and records `checksums` + `asset_signatures` in `release-manifest.json`. |
 | **Release Verification & Scoped GHL Export** | `app/approval.py`, `src/engine/exporter.py`, `app/ghl_exporter.py` | Verifies delivery HTML and referenced project assets against `release-manifest.json` (`verify` CLI); packages verified releases into `projects/_archives/<id>-approved.zip`; formats GHL snippets scoped under `#ghl-ev-engine-root-[business_id]` with absolute CDN/Cockpit asset URL rewriting, strict IIFE JS encapsulation with `MutationObserver`, and simulation verification (`is_valid=True`, `unscoped_css_count=0`, `global_leak_detected=False`). |
 | **Approval-Gated Safe Storage Pruning** | `app/cleanup.py`, `src/engine/cleanup.py` | Refuses pruning unless verified approved release archive exists and matches manifest; permanently protects `delivery/`, version snapshots, and `retained-assets.json`. |
@@ -278,7 +278,7 @@ flowchart LR
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
 | **Operator Cockpit & Studio UI** | FastAPI, TypeScript (`ES2022`) | `fastapi >= 0.115`, `Node >= 22.6` | Monograph Studio Cockpit UI (`127.0.0.1:8788`), compiled `app/static/studio.js` bundle, scoped GHL exporter, and async worker. |
 | **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:1.76.1` pinned | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 220-test suite across 38 modules. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 221-test suite across 38 modules. |
 
 ---
 
@@ -306,11 +306,12 @@ pet-gromming-agent-factory/
 ├── frontend/
 │   ├── tsconfig.json                            # Strict TypeScript compiler configuration (ES2022 + DOM)
 │   └── src/
-│       ├── types.ts                             # Strict TypeScript interfaces for DoD gates, section hashes & GHL simulation
-│       └── studio.ts                            # EditVistaStudioController (8-gate DoD ledger, 5-viewport resizer, section inspector)
+│       ├── types.ts                             # TypeScript contracts for DoD gates, 9-stage telemetry & GHL simulation
+│       └── studio.ts                            # EditVistaStudioController (9-stage guide/monitor, DoD ledger, 5-viewport resizer, section inspector)
 ├── scripts/
 │   ├── build_frontend.mjs                       # Zero-dependency TypeScript compiler producing app/static/studio.js
-│   └── freeze_site.py                           # Safe collector-based website freezer creating golden regression fixtures
+│   ├── freeze_site.py                           # Safe collector-based website freezer creating golden regression fixtures
+│   └── verify_dod.py                            # 360-degree 8-Gate Definition of Done audit runner across all production projects
 ├── n8n/
 │   ├── 01-client-intake-and-website-build.json      # 7-node client intake & 9-stage build trigger workflow
 │   ├── 02-live-build-telemetry-and-cockpit-router.json # 7-node build telemetry & Cockpit review router workflow
@@ -573,14 +574,21 @@ uv run python -m app.pipeline prune --project-id pup-palace
 uv run python -m app.pipeline prune --project-id pup-palace --execute
 ```
 
-### 9.4 Launching the Visual Operator Cockpit (`app/cockpit.py`)
+### 9.4 Launching the Monograph Studio Cockpit (`app/cockpit.py`)
 
-Launch the local web dashboard for human-in-the-loop review, sandboxed multi-viewport previews, live fact audits, asset rights confirmation, and surgical section revisions:
+Launch the local web dashboard for interactive 9-stage pipeline intake, live execution telemetry, sandboxed multi-viewport previews, fact provenance audits, asset rights confirmation, and surgical section revisions:
 
 ```bash
+# Default standalone launch (port 8787)
 uv run python -m app.cockpit --port 8787 --projects-dir ./projects
+
+# Recommended alongside the collector worker API (using port 8788)
+uv run uvicorn app.cockpit:create_cockpit_app --factory --host 127.0.0.1 --port 8788
+
+# Run 360-degree 8-Gate DoD compliance verification against the running Cockpit (expects port 8788)
+uv run python scripts/verify_dod.py
 ```
-Open `http://127.0.0.1:8787` in any browser to inspect projects, audit claim provenance, toggle asset rights, edit section markup surgically, and sign off on frozen releases.
+Open `http://127.0.0.1:8788` (or `:8787`) in any browser to submit a new salon URL, watch the live 9-stage telemetry trace, inspect source provenance, toggle asset rights, edit section markup surgically, and sign off on frozen releases.
 
 ### 9.5 Executing the 5-Business Acceptance Pilot (`app/pilot.py`)
 
@@ -689,14 +697,15 @@ The repository includes four production-grade, 7-node branching workflows (`n8n/
 
 ### 13.1 Operator Cockpit Endpoints (`app/cockpit.py`)
 
-The Operator Cockpit runs on `127.0.0.1:8787` (or `:8888`) and provides side-by-side inspection, live claim provenance auditing, surgical section patching, release candidate approval, and GoHighLevel snippet generation:
+The Operator Cockpit runs on `127.0.0.1:8788` (or default `:8787`) and provides side-by-side inspection, live 9-stage telemetry, claim provenance auditing, surgical section patching, release candidate approval, and GoHighLevel snippet generation:
 
-- `GET /` & `GET /dashboard` — Serves the Monograph Studio Workbench listing all projects, review statuses, and the New Business URL Intake bar (`run_now`).
+- `GET /` & `GET /dashboard` — Serves the Monograph Studio Workbench listing all projects, interactive 9-stage PDF blueprint guide bar (`01 Intake`–`09 Sign-Off`), collapsible 3×3 explainer drawer, and New Business URL Intake bar with client-side slug derivation (`run_now`).
 - `GET /static/studio.js` — Serves the compiled TypeScript `EditVistaStudioController` bundle (`X-Content-Type-Options: nosniff`).
 - `GET /api/health` — Liveness probe returning `{"status": "ok"}`.
 - `POST /api/projects` — Creates a strictly slug-validated (`^[a-z0-9][a-z0-9_-]{0,62}$`) project workspace and optionally launches a background pipeline build (`run_now: true`).
 - `POST /api/projects/{project_id}/resume` — Resumes an interrupted or failed pipeline run from the last completed SQLite idempotency checkpoint.
-- `GET /review/{project_id}` — Serves the Monograph Studio Review Cockpit UI (`app/templates/review_cockpit.html`) with the 8-gate DoD ribbon, interactive 5-viewport resizer, and sandboxed preview iframe (`sandbox="allow-scripts"`).
+- `GET /api/projects/{project_id}/stages` — Returns real-time 9-stage PDF execution telemetry combining SQLite `job_runs` rows with verified disk artifacts (`pages.json`, `business-facts.json`, `asset-manifest.json`, `website/index.html`, `qa/screenshots/`, `delivery/release-manifest.json`), including plain-English titles and concrete counts.
+- `GET /review/{project_id}` — Serves the Monograph Studio Review Cockpit UI (`app/templates/review_cockpit.html`) with the 8-gate DoD ribbon, `9-Stage Trace` trigger, interactive 5-viewport resizer, and sandboxed preview iframe (`sandbox="allow-scripts"`).
 - `GET /api/projects/{project_id}/dod-status` — Returns real-time 8-gate DoD compliance telemetry, section SHA-256 hashes, claim scanner violations, and workspace storage/archive metrics.
 - `GET /api/projects/{project_id}/section/{section_name}` — Returns canonical section HTML and its 64-char SHA-256 digest for the live surgical section editor.
 - `GET /api/projects/{project_id}/summary` — Returns full project review summary JSON (`fact_metrics`, `assets`, `screenshots`, `technical_qa_passed`, `visual_critique_status`).
@@ -729,7 +738,7 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Compile TypeScript studio bundle, then run linting, static type analysis, and all 220 automated tests
+# Compile TypeScript studio bundle, then run linting, static type analysis, and all 221 automated tests
 node scripts/build_frontend.mjs && uv run ruff check . && uv run pyright && uv run pytest -v
 ```
 
@@ -741,11 +750,11 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (220 Tests Across 38 Modules)
+### Complete Test Suite Breakdown (221 Tests Across 38 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
-| `tests/test_studio_frontend_dod.py` | 2 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune`, and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
+| `tests/test_studio_frontend_dod.py` | 3 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/stages` 9-stage PDF telemetry (including mid-pipeline failure states), `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune`, interactive blueprint bar (`data-ev-blueprint-bar`), guide drawer, live stepper modal (`data-ev-live-stepper`), and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
 | `tests/test_security_review_fixes.py` | 7 | Security code review regression suite: verifies `_container_safe_qa_runner` fails closed without fabricating `passed=True` QA reports, blocks `/preview/` and `/assets/` access to `research/`, enforces CSP sandbox + `nosniff` + `Content-Disposition: attachment` on SVGs, enforces `hmac.compare_digest` token auth on `GET` endpoints (`/api/projects/.../summary`, `/jobs/{id}`), sanitizes/redacts internal job error paths & secrets, strips `<script>`/`on*`/`javascript:` from downloaded SVGs at crawl time (`sanitize_svg_bytes`), enforces strict `PROJECT_ID_RE` slug allow-list in Cockpit, and verifies `EDITVISTA_API_TOKEN` headers in all `n8n/*.json` workflows. |
 | `tests/test_remediation_adversarial.py` | 10 | Adversarial regression suite for audit findings F1–F8: short approval token rejection, corrupted `visual-critique.json` blocking, mandatory `rights-audit.jsonl` enforcement, Cockpit bearer token & fail-closed non-loopback bind/host auth (`validate_bind_security`), `unavailable` critic blocking, fast non-vision provider error, targeted CSS revision scoping, perceptual dedupe + `DecompressionBombError` guard, and `@keyframes` GHL namespacing. |
 | `tests/test_claim_scanner.py` | 8 | Unsupported-claim scanner unit tests: blocks unverified money, percentage, phone, email, experience, and credential tokens while ignoring `<style>`/`<script>` blocks and allowing verified-fact-backed copy. |
@@ -856,6 +865,7 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
   - **Golden Regression Benchmark**: 12-business golden fixture corpus with one-to-one precision/recall scoring and `tmp_path` isolation so fixtures stay clean (`tests/golden/`, `scripts/freeze_site.py`).
   - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed QA runner (no synthetic `passed=True` fallback), shared constant-time `src/engine/auth.py` middleware across `GET` and mutating routes, sandboxed `/preview/` & `/assets/` serving with CSP + `nosniff`, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` in non-root Docker builds, pinned `n8nio/n8n:1.76.1`, and eager-scroll Playwright `loading="lazy"` inspection.
   - **Live Milestone 5 Status (5/5 Complete)**: Executed all 5 varied real pet grooming businesses end-to-end with live HTTP/Playwright collection, `GeminiProvider` (`gemini-3-flash-preview`) vision critique, 5-viewport Playwright QA (`5/5` passed on all 5), `claim_scanner` (`0` violations across all 5), rights confirmation, immutable `delivery/` + `versions/v1/` approval, verified backup archives, and GHL embed simulation (`is_valid=True`): `lilys-club.co.uk` (UK daycare/grooming), `pupcentral.co.uk` (UK salon), `fidosoffitzrovia.co.uk` (UK multi-species dog & cat), `modmuttsalon.com` (US strong-gallery salon), and `vanity-fur-doggrooming.co.uk` (UK mobile van).
+  - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, and verified zero horizontal overflow across 1440px Desktop through 360px Mobile (`221 passed`, `0` ruff/pyright errors).
 
 ---
 
