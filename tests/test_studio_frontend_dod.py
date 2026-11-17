@@ -132,3 +132,115 @@ def test_studio_dod_status_section_inspector_and_bulk_rights_endpoints(
     assert 'data-ev-viewport-switcher="true"' in html_rev
     assert "/static/studio.js" in html_rev
     assert "#0F172A" not in html_rev
+
+
+def test_studio_9stage_telemetry_and_guide_ui(tmp_path: Path) -> None:
+    from app.db import JobRunRecord, ProjectRecord, connect_db, init_db, upsert_project
+
+    projects_dir = tmp_path / "projects"
+    _scaffold_cockpit_project(projects_dir, "studio-paws", rights_confirmed=True)
+    app = create_cockpit_app(projects_dir=projects_dir)
+
+    # 1. Completed/staged artifacts project returns 9 canonical PDF stages
+    s_stg, _, body_stg = _asgi_req(app, "GET", "/api/projects/studio-paws/stages")
+    assert s_stg == 200, body_stg
+    data = json.loads(body_stg)
+    assert data["project_id"] == "studio-paws"
+    stages = data["stages"]
+    assert len(stages) == 9
+    expected_modules = [
+        "intake",
+        "collect",
+        "extract",
+        "curate",
+        "art_director",
+        "generate",
+        "critique",
+        "qa",
+        "signoff",
+    ]
+    assert [s["module"] for s in stages] == expected_modules
+    for st in stages:
+        assert st["plain_title"]
+        assert st["plain_analogy"]
+        assert st["pdf_spec"]
+        assert st["status"] in ("pending", "running", "completed", "failed", "needs_review")
+        assert "evidence" in st
+
+    # 2. Failed mid-pipeline job_runs reflects exact failure stage telemetry
+    db_path = projects_dir / "editvista.sqlite3"
+    fail_dir = projects_dir / "failing-paws"
+    fail_dir.mkdir(parents=True, exist_ok=True)
+    conn = connect_db(db_path)
+    try:
+        init_db(conn)
+        upsert_project(
+            conn,
+            ProjectRecord(
+                project_id="failing-paws",
+                business_name="Failing Paws",
+                primary_url="https://failingpaws.example",
+                status="failed",
+            ),
+        )
+        for rec in (
+            JobRunRecord(
+                run_id="r1",
+                project_id="failing-paws",
+                module_name="collect",
+                status="completed",
+                idempotency_key="k1",
+            ),
+            JobRunRecord(
+                run_id="r2",
+                project_id="failing-paws",
+                module_name="extract",
+                status="failed",
+                idempotency_key="k2",
+                error_message="Timeout parsing pricing table",
+            ),
+        ):
+            conn.execute(
+                """
+                INSERT INTO job_runs
+                  (run_id, project_id, module_name, status, idempotency_key,
+                   error_message, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rec.run_id,
+                    rec.project_id,
+                    rec.module_name,
+                    rec.status,
+                    rec.idempotency_key,
+                    rec.error_message,
+                    rec.created_at.isoformat(),
+                    rec.updated_at.isoformat(),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    s_fail, _, body_fail = _asgi_req(app, "GET", "/api/projects/failing-paws/stages")
+    assert s_fail == 200, body_fail
+    fail_stages = {s["module"]: s for s in json.loads(body_fail)["stages"]}
+    assert fail_stages["collect"]["status"] == "completed"
+    assert fail_stages["extract"]["status"] == "failed"
+    assert "Timeout parsing pricing table" in fail_stages["extract"]["evidence"]
+
+    # 3. Dashboard & Review templates expose non-technical 9-stage guide + live stepper UI
+    _, _, html_dash = _asgi_req(app, "GET", "/dashboard")
+    assert 'data-ev-blueprint-bar="true"' in html_dash
+    assert 'data-ev-live-stepper="true"' in html_dash
+    assert "togglePipelineGuide" in html_dash
+    assert "openStageMonitor" in html_dash
+
+    _, _, html_rev = _asgi_req(app, "GET", "/review/studio-paws")
+    assert 'data-ev-live-stepper="true"' in html_rev
+    assert "openStageMonitor" in html_rev
+
+    # 4. Compiled studio.js contains live stepper and guide methods
+    _, _, js_body = _asgi_req(app, "GET", "/static/studio.js")
+    assert "openStageMonitor" in js_body
+    assert "togglePipelineGuide" in js_body

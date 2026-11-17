@@ -74,3 +74,24 @@ export interface PruneResponse {
   readonly reclaimed_bytes?: number;
   readonly archive?: string;
 }
+
+export type StageExecutionState = "pending" | "running" | "completed" | "failed" | "needs_review";
+
+export interface PipelineStageItem {
+  readonly step: number;
+  readonly module: string;
+  readonly title: string;
+  readonly plain_title: string;
+  readonly plain_analogy: string;
+  readonly pdf_spec: string;
+  readonly status: StageExecutionState;
+  readonly evidence: string;
+}
+
+export interface ProjectStagesResponse {
+  readonly project_id: string;
+  readonly business_name: string;
+  readonly primary_url: string;
+  readonly project_status: string;
+  readonly stages: ReadonlyArray<PipelineStageItem>;
+}

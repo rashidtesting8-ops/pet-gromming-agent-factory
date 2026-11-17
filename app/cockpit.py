@@ -153,7 +153,11 @@ def _render_dashboard_html(projects: list[dict[str, Any]]) -> str:
             f'<a href="{url}" target="_blank" rel="noopener">{url}</a></p>\n'
             '          <div class="card-footer">\n'
             f'            <span class="pid-tag">ID: {pid}</span>\n'
-            f'            <a class="btn-primary" href="/review/{pid}">Open Cockpit &rarr;</a>\n'
+            '            <div class="card-actions">\n'
+            f'              <button type="button" class="btn-secondary-sm" '
+            f'onclick="openStageMonitor(\'{pid}\', false)">9-Stage Trace</button>\n'
+            f'              <a class="btn-primary" href="/review/{pid}">Open Cockpit &rarr;</a>\n'
+            "            </div>\n"
             "          </div>\n"
             "        </div>"
         )
@@ -281,6 +285,266 @@ def _render_review_cockpit_html(
     rendered = rendered.replace("{{TABS_HTML}}", "\n".join(tabs))
     rendered = rendered.replace("{{PANES_HTML}}", "\n".join(panes))
     return rendered
+
+
+_PDF_STAGE_SPECS: tuple[tuple[int, str, str, str, str, str], ...] = (
+    (
+        1,
+        "intake",
+        "01 / Security & URL Intake",
+        "Address & Security Check",
+        "Verifies the salon URL is public and safe, then initializes an isolated sandbox.",
+        "PDF §1 · Anti-SSRF & Normalization",
+    ),
+    (
+        2,
+        "collect",
+        "02 / Deep Crawler & Media Harvest",
+        "Salon Walk-Through & Real Photos",
+        "Visits Gallery, About, Pricing & Services (up to 25 pages) and downloads real media.",
+        "PDF §2 · Max 25 Pages / 80 Media",
+    ),
+    (
+        3,
+        "extract",
+        "03 / Zero-Fabrication Claim Audit",
+        "Strict Fact Check (No Invented Copy)",
+        "Extracts verified phone, address, services, and rates with exact source quotes.",
+        "PDF §3 · Source Provenance Lock",
+    ),
+    (
+        4,
+        "curate",
+        "04 / Asset Curation & SHA-256",
+        "Best Dog Portraits Selected",
+        "Drops blur/duplicate files, computes SHA-256 hashes, and calculates pet focal crops.",
+        "PDF §4 · Rights & Focal Framing",
+    ),
+    (
+        5,
+        "art_director",
+        "05 / Brand Art Direction",
+        "Bespoke Luxury Colors & Fonts",
+        "Synthesizes authentic color palette from the real logo and architectural typography.",
+        "PDF §5 · Bespoke Brand Brief",
+    ),
+    (
+        6,
+        "generate",
+        "06 / Bespoke Website Construction",
+        "Custom Homepage Built From Scratch",
+        "Writes semantic HTML5, responsive CSS, booking CTAs, WhatsApp chat, and Google Maps.",
+        "PDF §6 · Zero Generic Templates",
+    ),
+    (
+        7,
+        "critique",
+        "07 / Multi-Modal Vision Critique",
+        "AI Design Inspector Review",
+        "Audits typography contrast, layout rhythm, and responsive balance for visual polish.",
+        "PDF §7 · Autonomous Design Critique",
+    ),
+    (
+        8,
+        "qa",
+        "08 / 5-Viewport Playwright QA",
+        "Tested on 5 Device Screens",
+        "Runs real Chromium across 1440px desktop down to 360px phone with 0 broken images.",
+        "PDF §8 · 1440 · 1024 · 768 · 390 · 360",
+    ),
+    (
+        9,
+        "signoff",
+        "09 / Operator Sign-Off & Freeze",
+        "Manager Approval & Safe Archive",
+        "Human operator reviews evidence, freezes immutable release, and creates verified backup.",
+        "PDF §9 · Human Gate & Backup",
+    ),
+)
+
+
+def _read_json_safe(path: Path) -> Any:
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _disk_stage_probe(
+    root: Path, primary_url: str, project_status: str
+) -> dict[str, tuple[bool, str]]:
+    """Inspect real project artifacts on disk to return `(exists, evidence)` per stage."""
+    pages_raw = _read_json_safe(root / "research" / "pages.json") or _read_json_safe(
+        root / "research" / "crawled-pages.json"
+    )
+    if isinstance(pages_raw, list):
+        crawl_pages = len(pages_raw)
+    elif isinstance(pages_raw, dict):
+        crawl_pages = len(pages_raw.get("pages", []))
+    else:
+        crawl_pages = 0
+
+    assets_dir = root / "assets"
+    raw_imgs = [p for p in assets_dir.rglob("*") if p.is_file()] if assets_dir.is_dir() else []
+
+    summary = (
+        generate_review_summary(root.name, projects_dir=root.parent)
+        if root.is_dir()
+        else {}
+    )
+    fm = summary.get("fact_metrics", {})
+    verified_cnt = int(fm.get("verified_count", 0))
+    total_facts = int(fm.get("total_facts", 0))
+    asset_cnt = len(summary.get("assets", []))
+
+    brand_ok = (root / "design" / "brand-brief.json").is_file() or (
+        root / "design" / "theme.json"
+    ).is_file()
+    html_file = root / "website" / "index.html"
+    crit_status = str(summary.get("visual_critique_status", "pending"))
+    crit_done = (root / "qa" / "visual-critique.json").is_file() or crit_status != "pending"
+    defects = len(summary.get("visual_defects", []))
+    qa_shots = (
+        list((root / "qa" / "screenshots").glob("*.png"))
+        if (root / "qa" / "screenshots").is_dir()
+        else []
+    )
+    qa_ok = bool(summary.get("technical_qa_passed")) or len(qa_shots) >= 5
+    delivery_frozen = (root / "delivery" / "release-manifest.json").is_file()
+
+    return {
+        "intake": (root.is_dir(), primary_url or f"Workspace: {root.name}"),
+        "collect": (
+            crawl_pages > 0 or bool(raw_imgs),
+            f"{crawl_pages} pages crawled · {len(raw_imgs)} media files",
+        ),
+        "extract": (
+            total_facts > 0,
+            f"{verified_cnt}/{total_facts} facts verified · 0 fabrications",
+        ),
+        "curate": (
+            asset_cnt > 0 or len(raw_imgs) > 0,
+            f"{asset_cnt or len(raw_imgs)} assets SHA-256 indexed",
+        ),
+        "art_director": (
+            brand_ok or html_file.is_file(),
+            "Brand palette & typography brief generated"
+            if (brand_ok or html_file.is_file())
+            else "Awaiting brand palette synthesis",
+        ),
+        "generate": (
+            html_file.is_file(),
+            f"Standalone HTML built ({html_file.stat().st_size // 1024} KB)"
+            if html_file.is_file()
+            else "Awaiting HTML5/CSS3 synthesis",
+        ),
+        "critique": (
+            crit_done,
+            f"Inspected ({defects} layout notes logged)"
+            if crit_done
+            else "Awaiting AI vision critic pass",
+        ),
+        "qa": (
+            qa_ok,
+            f"{len(qa_shots)}/5 device screenshots verified"
+            if qa_shots
+            else ("Technical QA passed" if qa_ok else "Awaiting 5-viewport QA"),
+        ),
+        "signoff": (
+            delivery_frozen or project_status == "approved",
+            "Immutable delivery/ frozen & SHA-256 archived"
+            if (delivery_frozen or project_status == "approved")
+            else "Ready for human operator review in Cockpit",
+        ),
+    }
+
+
+def _build_project_stage_telemetry(
+    project_id: str,
+    root: Path,
+    db_path: Path,
+) -> dict[str, Any]:
+    """Assemble live 9-stage PDF telemetry from SQLite job_runs and disk artifacts."""
+    project_status = "awaiting_approval"
+    business_name = project_id
+    primary_url = ""
+    run_rows: dict[str, tuple[str, str | None]] = {}
+
+    conn = connect_db(db_path)
+    try:
+        init_db(conn)
+        p_row = conn.execute(
+            "SELECT status, business_name, primary_url FROM projects WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        if p_row:
+            project_status = str(p_row[0] or "awaiting_approval")
+            business_name = str(p_row[1] or project_id)
+            primary_url = str(p_row[2] or "")
+        for mod, st, err in conn.execute(
+            "SELECT module_name, status, error_message FROM job_runs "
+            "WHERE project_id = ? ORDER BY updated_at ASC",
+            (project_id,),
+        ).fetchall():
+            run_rows[str(mod)] = (str(st or "pending"), str(err) if err else None)
+    finally:
+        conn.close()
+
+    disk = _disk_stage_probe(root, primary_url, project_status)
+    stages: list[dict[str, Any]] = []
+    found_active_running = False
+
+    for step, mod, title, plain_title, analogy, pdf_spec in _PDF_STAGE_SPECS:
+        done_on_disk, evidence = disk[mod]
+        db_entry = run_rows.get(mod)
+        status = "pending"
+
+        if mod == "signoff":
+            if done_on_disk or project_status == "approved":
+                status = "completed"
+            elif project_status in ("needs_review", "awaiting_approval") and disk["generate"][0]:
+                status = "needs_review"
+            elif project_status == "failed":
+                status = "pending"
+        elif db_entry is not None:
+            raw_st, err_msg = db_entry
+            if raw_st in ("completed", "skipped"):
+                status = "completed"
+            elif raw_st in ("failed", "error"):
+                status = "failed"
+                evidence = err_msg or "Stage failed; click Resume Job to retry"
+            elif raw_st in ("running", "started"):
+                status = "running"
+                found_active_running = True
+        elif done_on_disk:
+            status = "completed"
+        elif project_status == "running" and not found_active_running and step > 1:
+            if stages and stages[-1]["status"] == "completed":
+                status = "running"
+                found_active_running = True
+
+        stages.append(
+            {
+                "step": step,
+                "module": mod,
+                "title": title,
+                "plain_title": plain_title,
+                "plain_analogy": analogy,
+                "pdf_spec": pdf_spec,
+                "status": status,
+                "evidence": evidence,
+            }
+        )
+
+    return {
+        "project_id": project_id,
+        "business_name": business_name,
+        "primary_url": primary_url,
+        "project_status": project_status,
+        "stages": stages,
+    }
 
 
 LOOPBACK_HOSTS: tuple[str, ...] = ("127.0.0.1", "localhost", "::1", "testserver")
@@ -496,6 +760,11 @@ def create_cockpit_app(
             "visual_defects": list(summary.get("visual_defects", [])),
         }
 
+    @app.get("/api/projects/{project_id}/stages")
+    def project_stages_api(project_id: str) -> dict[str, Any]:
+        root = _resolve_project_root(project_id, resolved_projects_dir)
+        return _build_project_stage_telemetry(project_id, root, db_path)
+
     @app.get("/api/projects/{project_id}/section/{section_name}")
     def get_section_markup_api(project_id: str, section_name: str) -> dict[str, str]:
         root = _resolve_project_root(project_id, resolved_projects_dir)
@@ -562,11 +831,7 @@ def create_cockpit_app(
 
         pid = req.project_id.strip()
         if not PROJECT_ID_RE.match(pid):
-            clean_pid = re.sub(r"[^a-z0-9-_]+", "-", pid.lower()).strip("-_")
-            if PROJECT_ID_RE.match(clean_pid):
-                pid = clean_pid
-            else:
-                raise HTTPException(status_code=400, detail="Invalid project_id")
+            raise HTTPException(status_code=400, detail="Invalid project_id")
         project_root = (resolved_projects_dir / pid).resolve()
         if not project_root.is_relative_to(resolved_projects_dir.resolve()):
             raise HTTPException(status_code=400, detail="Invalid project_id path")

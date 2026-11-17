@@ -78,7 +78,102 @@
                             
  
 
+                                                                                                  
 
+                                    
+                        
+                          
+                         
+                               
+                                 
+                            
+                                       
+                            
+ 
+
+                                        
+                              
+                                 
+                               
+                                  
+                                                    
+ 
+
+
+
+                               
+                        
+                              
+                              
+                           
+                           
+ 
+
+const BLUEPRINT_STAGES                                     = [
+  {
+    step: 1,
+    shortLabel: "01 Intake",
+    plainTitle: "Address & Security Check",
+    analogy: "Checks that the business website is genuine and public, then creates an isolated build workspace.",
+    pdfSpec: "PDF §1 · Anti-SSRF & URL Intake",
+  },
+  {
+    step: 2,
+    shortLabel: "02 Crawl",
+    plainTitle: "Salon Walk-Through & Real Photos",
+    analogy: "Reads About, Services, Prices, Reviews & Gallery (up to 25 pages) and downloads real dog photos.",
+    pdfSpec: "PDF §2 · Max 25 Pages / 80 Media",
+  },
+  {
+    step: 3,
+    shortLabel: "03 Audit",
+    plainTitle: "Strict Fact Check (Zero Fabrication)",
+    analogy: "Saves phone, hours & real prices with exact website quotes—never invents fake prices or claims.",
+    pdfSpec: "PDF §3 · Source Provenance Lock",
+  },
+  {
+    step: 4,
+    shortLabel: "04 Curate",
+    plainTitle: "Best Dog Portraits Selected",
+    analogy: "Removes blurry or duplicate images, seals SHA-256 hashes, and frames faces cleanly for mobile.",
+    pdfSpec: "PDF §4 · SHA-256 & Rights Matrix",
+  },
+  {
+    step: 5,
+    shortLabel: "05 Brand",
+    plainTitle: "Bespoke Luxury Colors & Fonts",
+    analogy: "Extracts official brand palette from the salon logo and pairs Swiss editorial typography.",
+    pdfSpec: "PDF §5 · Brand Art Direction",
+  },
+  {
+    step: 6,
+    shortLabel: "06 Build",
+    plainTitle: "Custom Homepage Built From Scratch",
+    analogy: "Generates semantic HTML5, responsive CSS, booking buttons, WhatsApp links & interactive map.",
+    pdfSpec: "PDF §6 · Zero Generic Templates",
+  },
+  {
+    step: 7,
+    shortLabel: "07 Critic",
+    plainTitle: "AI Design Inspector Review",
+    analogy: "Visually audits typography contrast, layout rhythm, and card balance before browser testing.",
+    pdfSpec: "PDF §7 · Multi-Modal Vision Critic",
+  },
+  {
+    step: 8,
+    shortLabel: "08 QA",
+    plainTitle: "Tested on 5 Real Screen Sizes",
+    analogy: "Opens real Chromium across Desktop (1440px), Laptop, Tablet, iPhone & Android (360px) with 0 errors.",
+    pdfSpec: "PDF §8 · 5-Viewport Playwright QA",
+  },
+  {
+    step: 9,
+    shortLabel: "09 Sign-Off",
+    plainTitle: "Manager Approval & Verified Backup",
+    analogy: "Human manager reviews evidence, approves & locks delivery files, then verifies tarball backup.",
+    pdfSpec: "PDF §9 · Human Gate & Safe Prune",
+  },
+];
 
 const VIEWPORT_PRESETS                                = [
   { width: 1440, label: "Desktop", tag: "1440px" },
@@ -91,12 +186,16 @@ const VIEWPORT_PRESETS                                = [
 class EditVistaStudioController {
                    projectId        ;
           activeViewport                = 1440;
+          activeBlueprintStep = 1;
+          stagePollTimer                = null;
+          monitorStartMs = 0;
 
   constructor(projectId        ) {
     this.projectId = projectId;
   }
 
          async init()                {
+    this.renderBlueprintBar();
     this.bindViewportSwitcher();
     this.bindSectionSelector();
     this.bindKeyboardShortcuts();
@@ -167,6 +266,9 @@ class EditVistaStudioController {
 
           bindKeyboardShortcuts()       {
     window.addEventListener("keydown", (ev               ) => {
+      if (ev.key === "Escape") {
+        this.closeStageMonitor();
+      }
       if (ev.altKey && ev.key >= "1" && ev.key <= "5") {
         ev.preventDefault();
         const idx = Number(ev.key) - 1;
@@ -356,6 +458,171 @@ class EditVistaStudioController {
     this.showToast(summary, "ok");
     await this.refreshDoDLedger();
   }
+
+          escapeHtml(raw        )         {
+    return raw
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+         renderBlueprintBar()       {
+    const bar = document.querySelector("[data-ev-blueprint-bar]");
+    if (!bar) return;
+    bar.innerHTML = BLUEPRINT_STAGES.map(
+      (s) =>
+        `<button type="button" class="ev-bp-step ${s.step === this.activeBlueprintStep ? "active" : ""}" ` +
+        `data-bp-step="${s.step}" onclick="focusBlueprintStage(${s.step})">` +
+        `${this.escapeHtml(s.shortLabel)}` +
+        `</button>`
+    ).join("");
+    this.focusBlueprintStage(this.activeBlueprintStep);
+  }
+
+         focusBlueprintStage(step        )       {
+    this.activeBlueprintStep = step;
+    const item = BLUEPRINT_STAGES.find((s) => s.step === step) ?? BLUEPRINT_STAGES[0];
+    document.querySelectorAll                   ("[data-bp-step]").forEach((btn) => {
+      btn.classList.toggle("active", Number(btn.getAttribute("data-bp-step")) === step);
+    });
+    const spot = document.getElementById("ev-blueprint-spotlight");
+    if (spot && item) {
+      spot.innerHTML =
+        `<div class="ev-bp-spot-left">` +
+        `<span class="ev-bp-spot-num">STAGE 0${item.step} OF 09</span>` +
+        `<strong>${this.escapeHtml(item.plainTitle)}</strong>` +
+        `<p>${this.escapeHtml(item.analogy)}</p>` +
+        `</div>` +
+        `<span class="ev-bp-spot-spec">${this.escapeHtml(item.pdfSpec)}</span>`;
+    }
+  }
+
+         togglePipelineGuide()       {
+    const drawer = document.querySelector("[data-ev-pipeline-guide]")                      ;
+    if (!drawer) return;
+    const nextOpen = drawer.hasAttribute("hidden");
+    if (nextOpen) {
+      drawer.removeAttribute("hidden");
+    } else {
+      drawer.setAttribute("hidden", "true");
+    }
+    document.querySelectorAll                   ("[data-ev-guide-toggle]").forEach((btn) => {
+      btn.classList.toggle("active", nextOpen);
+    });
+  }
+
+         async openStageMonitor(targetPid        , autoPoll = false)                {
+    const modal = document.querySelector("[data-ev-live-stepper]")                      ;
+    if (!modal || !targetPid) return;
+    this.stopStagePoll();
+    this.monitorStartMs = Date.now();
+    modal.removeAttribute("hidden");
+    await this.refreshStageMonitor(targetPid, autoPoll);
+    if (autoPoll) {
+      this.stagePollTimer = window.setInterval(() => {
+        void this.refreshStageMonitor(targetPid, true);
+      }, 1200);
+    }
+  }
+
+         closeStageMonitor()       {
+    this.stopStagePoll();
+    const modal = document.querySelector("[data-ev-live-stepper]")                      ;
+    modal?.setAttribute("hidden", "true");
+  }
+
+          stopStagePoll()       {
+    if (this.stagePollTimer !== null) {
+      window.clearInterval(this.stagePollTimer);
+      this.stagePollTimer = null;
+    }
+  }
+
+          renderStageBadge(status                             )                                {
+    switch (status) {
+      case "completed":
+        return { cls: "ev-stg-badge--done", text: "DONE" };
+      case "running":
+        return { cls: "ev-stg-badge--run", text: "RUNNING" };
+      case "needs_review":
+        return { cls: "ev-stg-badge--review", text: "READY FOR REVIEW" };
+      case "failed":
+        return { cls: "ev-stg-badge--fail", text: "FAILED" };
+      default:
+        return { cls: "ev-stg-badge--wait", text: "QUEUED" };
+    }
+  }
+
+         async refreshStageMonitor(targetPid        , isPolling = false)                {
+    const listEl = document.getElementById("ev-stepper-rows");
+    const titleEl = document.getElementById("ev-stepper-title");
+    const subEl = document.getElementById("ev-stepper-sub");
+    const statusPill = document.getElementById("ev-stepper-status-pill");
+    const ctaLink = document.getElementById("ev-stepper-cockpit-cta")                            ;
+    if (!listEl) return;
+
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(targetPid)}/stages`);
+      if (!res.ok) return;
+      const data = (await res.json())                         ;
+      const elapsedSec = ((Date.now() - this.monitorStartMs) / 1000).toFixed(1);
+
+      if (titleEl) {
+        titleEl.textContent = data.business_name || data.project_id;
+      }
+      if (subEl) {
+        subEl.textContent = `${data.primary_url || data.project_id} · Elapsed ${elapsedSec}s`;
+      }
+      if (ctaLink) {
+        ctaLink.href = `/review/${encodeURIComponent(data.project_id)}`;
+      }
+      if (statusPill) {
+        statusPill.textContent = data.project_status.toUpperCase();
+        statusPill.className = `badge ${
+          data.project_status === "approved"
+            ? "badge-green"
+            : data.project_status === "failed"
+              ? "badge-red"
+              : data.project_status === "running"
+                ? "badge-blue"
+                : "badge-amber"
+        }`;
+      }
+
+      listEl.innerHTML = data.stages
+        .map((st) => {
+          const b = this.renderStageBadge(st.status);
+          return (
+            `<div class="ev-stepper-row ev-stepper-row--${this.escapeHtml(st.status)}">` +
+            `<div class="ev-stepper-num">0${st.step}</div>` +
+            `<div class="ev-stepper-body">` +
+            `<div class="ev-stepper-top">` +
+            `<strong>${this.escapeHtml(st.plain_title)}</strong>` +
+            `<span class="ev-stepper-tech">${this.escapeHtml(st.pdf_spec)}</span>` +
+            `</div>` +
+            `<p class="ev-stepper-desc">${this.escapeHtml(st.plain_analogy)}</p>` +
+            `<div class="ev-stepper-ev">${this.escapeHtml(st.evidence)}</div>` +
+            `</div>` +
+            `<span class="ev-stg-badge ${b.cls}">${b.text}</span>` +
+            `</div>`
+          );
+        })
+        .join("");
+
+      if (isPolling && data.project_status !== "running") {
+        this.stopStagePoll();
+        const doneMsg =
+          data.project_status === "failed"
+            ? `Pipeline halted for ${data.project_id}; review stage trace.`
+            : `All stages processed for ${data.project_id}. Ready for review!`;
+        this.showToast(doneMsg, data.project_status === "failed" ? "err" : "ok");
+      }
+    } catch {
+      // Transient polling failures keep waiting until timeout or close
+    }
+  }
 }
 
                 
@@ -372,6 +639,10 @@ class EditVistaStudioController {
                                         
                                                                
                                        
+                                                                               
+                                  
+                                    
+                                                
    
  
 
@@ -430,10 +701,26 @@ function bootEditVistaStudio()       {
     const data = (await res.json())                                            ;
     if (res.ok) {
       controller.showToast(`Resumed pipeline for ${data.project_id ?? pid}`, "ok");
-      window.setTimeout(() => window.location.reload(), 900);
+      await controller.openStageMonitor(data.project_id ?? pid, true);
     } else {
       controller.showToast(`Resume failed: ${data.detail ?? "Error"}`, "err");
     }
+  };
+
+  window.openStageMonitor = async (targetPid        , autoPoll = false)                => {
+    await controller.openStageMonitor(targetPid || pid, autoPoll);
+  };
+
+  window.closeStageMonitor = ()       => {
+    controller.closeStageMonitor();
+  };
+
+  window.togglePipelineGuide = ()       => {
+    controller.togglePipelineGuide();
+  };
+
+  window.focusBlueprintStage = (step        )       => {
+    controller.focusBlueprintStage(step);
   };
 
   window.approveRelease = async ()                => {
@@ -637,7 +924,14 @@ function bootEditVistaStudio()       {
       }),
     });
     if (res.ok) {
-      window.location.reload();
+      const created = (await res.json())                                                  ;
+      const resolvedPid = created.project_id ?? newPid;
+      if (created.job_started) {
+        controller.showToast(`Synthesis started for ${resolvedPid}. Watching all 9 stages live.`, "ok");
+        await controller.openStageMonitor(resolvedPid, true);
+      } else {
+        window.location.reload();
+      }
     } else {
       const d = (await res.json())                       ;
       controller.showToast(`Intake error: ${d.detail ?? "Invalid slug"}`, "err");
