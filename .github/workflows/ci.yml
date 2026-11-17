@@ -28,6 +28,17 @@ jobs:
       - name: Install Playwright Chromium for 5-viewport QA tests
         run: uv run --no-sync playwright install --with-deps chromium
 
+      - name: Set up Node 22 for TypeScript studio bundle check
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify compiled TypeScript studio bundle parity
+        run: |
+          node scripts/build_frontend.mjs
+          node --check app/static/studio.js
+          git diff --exit-code app/static/studio.js
+
       - name: Run Ruff linter
         run: uv run --no-sync ruff check .
 

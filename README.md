@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 222 Passing](https://img.shields.io/badge/tests-222%20passing-brightgreen.svg)
+![Tests: 224 Passing](https://img.shields.io/badge/tests-224%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -79,7 +79,7 @@ Traditional AI site generators suffer from critical production failure modes:
 | **Dynamic JS Gallery Discovery** | `src/engine/browser_gallery.py` | Spawns an ephemeral headless Chromium browser with `page.route("**/*", ...)` SSRF request interception (blocking non-HTTP schemes and private/internal IPs) to scroll and render JavaScript-dependent galleries, downloading media through the verified socket pipeline. |
 | **Subprocess Social Media Collector** | `src/engine/social_collect.py` | Invokes `gallery-dl` in an isolated subprocess (`--config-ignore`, `--no-input`, `--sleep-request 3.0`), verifies post timestamps via `--dump-json` dry-runs, strips EXIF/GPS metadata, enforces storage limits, and classifies failures without crashing. |
 | **Meta Archive Importer** | `src/engine/import_meta_export.py` | Ingests Instagram/Facebook "Download Your Information" ZIP archives or directories, repairs Latin-1/UTF-8 mojibake, enforces streaming ratio caps against zip bombs, and blocks directory traversal. |
-| **Locale-Aware Fact Verification** | `app/fact_extractor.py` | Extracts business facts (JSON-LD, hrefs, regex) with UK postcode parsing, international phone parsing via `phonenumbers` (GB, US, PK), 7-day structured hours completeness validation, price trap defense, and conflict detection (`conflicts_with`). |
+| **Locale-Aware Fact Verification** | `app/fact_extractor.py` | Extracts business facts (JSON-LD with business `@type` filtering to block Yoast `WebPage` false conflicts, hrefs, regex) with UK postcode parsing, international phone parsing via `phonenumbers` (GB, US, PK), 7-day structured hours completeness validation, price trap defense, and conflict detection (`conflicts_with`). |
 | **Golden Test Corpus & Benchmark** | `scripts/freeze_site.py`, `tests/golden/` | Crawls and freezes HTML snapshots into 12 golden regression fixtures with verified ground truth facts; scores baseline precision and recall across all business fact categories. |
 | **Visual Curation & Focal Centroids** | `app/curator.py` | Scans candidate images using Pillow; excludes low-resolution files (`< 800px`) and baked-in text; computes upper-center pet focal percentages (`object-position`); enforces cross-section deduplication across `hero`, `gallery`, and `van` (`design/image-selection.json`). |
 | **Luxury Brand Analysis & Art Direction** | `app/art_director.py` | Extracts dominant brand palettes from logos (with accessible luxury editorial fallbacks), classifies business archetypes (`salon`, `mobile`, `multi-species`), orders `suggested_sections`, filters strictly for `is_verified=True` claims in LLM prompts, and emits `design/brand.json` and `design/creative-brief.json`. |
@@ -278,7 +278,7 @@ flowchart LR
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
 | **Operator Cockpit & Studio UI** | FastAPI, TypeScript (`ES2022`) | `fastapi >= 0.115`, `Node >= 22.6` | Monograph Studio Cockpit UI (`127.0.0.1:8788`), compiled `app/static/studio.js` bundle, scoped GHL exporter, and async worker. |
 | **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:1.76.1` pinned | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 222-test suite across 38 modules. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 224-test suite across 38 modules. |
 
 ---
 
@@ -287,7 +287,9 @@ flowchart LR
 ```text
 pet-gromming-agent-factory/
 ├── .github/workflows/
-│   └── ci.yml                               # GitHub Actions CI pipeline (uv sync --extra browser, ruff, pyright, pytest)
+│   └── ci.yml                               # GitHub Actions CI pipeline (Node 22 TS parity check, uv sync --extra browser, ruff, pyright, pytest)
+├── .env.example                             # Documented environment variable template (zero committed secrets)
+├── .python-version                          # Pinned Python 3.12 toolchain version
 ├── AGENTS.md                                # Non-negotiable domain rules, invariants & Definition of Done
 ├── pyproject.toml                           # Python 3.12 project metadata, dependencies & tool configuration
 ├── uv.lock                                  # Cryptographically pinned dependency lockfile
@@ -300,7 +302,8 @@ pet-gromming-agent-factory/
 ├── docs/
 │   ├── DEVELOPER_BRIEF.md                   # Full architectural specification, rules & milestone roadmaps
 │   ├── AUDIT_AND_TESTS.md                   # Security audit logs and collector penetration test details
-│   └── BUDGET_AND_QUALITY.md                # Spend controls, storage limits, and QA threshold metrics
+│   ├── BUDGET_AND_QUALITY.md                # Spend controls, storage limits, and QA threshold metrics
+│   └── HANDOFF_README.md                    # Operator handoff and operational runbook notes
 ├── examples/
 │   └── BUSINESS_INPUT_EXAMPLE.json          # Reference JSON schema for business intake workflows
 ├── frontend/
@@ -360,8 +363,15 @@ pet-gromming-agent-factory/
 │   └── cleanup.py                           # High-level wrapper for safe_prune_project()
 └── tests/
     ├── golden/                              # 12 golden test corpus fixtures (UK/US salons, mobile van, tables)
+    ├── test_studio_frontend_dod.py          # TypeScript Monograph Studio UI, 9-stage telemetry & storage scan tests
+    ├── test_security_review_fixes.py        # Fail-closed QA, sandbox headers, SVG sanitization & token auth tests
+    ├── test_remediation_adversarial.py      # Adversarial regression suite for audit findings F1-F8
+    ├── test_claim_scanner.py                # Non-acknowledgeable zero-fabrication HTML claim scanner tests
+    ├── test_cockpit_e2e_controls.py         # Cockpit URL intake (run_now) & SQLite resume endpoint tests
+    ├── test_bespoke_generator.py            # Fact-grounded LLM section authoring & hallucination fallback tests
+    ├── test_dod_acceptance.py               # End-to-end Definition of Done acceptance lifecycle test
     ├── test_golden_extraction.py            # Baseline extraction benchmark and precision/recall scoring logic
-    ├── test_fact_extractor_locale.py        # Locale-aware address, phone, weekly hours & conflict resolution tests
+    ├── test_fact_extractor_locale.py        # Locale-aware address, phone, weekly hours, Yoast & conflict resolution tests
     ├── test_mvf_gate.py                     # Minimum Viable Facts gate and #contact CTA omission tests
     ├── test_rights_and_approval.py          # Human-driven asset rights workflow and approval locking tests
     ├── test_pipeline_rerun_safety.py        # Draft directory reset safety & approved project locking tests
@@ -714,7 +724,7 @@ The Operator Cockpit runs on `127.0.0.1:8788` (or default `:8787`) and provides 
 - `POST /api/projects/{project_id}/confirm-all-rights` — Bulk-confirms preview/export rights across all project assets and signs `research/rights-audit.jsonl`.
 - `POST /api/projects/{project_id}/revise-section` — Validates and applies a surgical HTML revision to `website/sections/<section_name>.html` while preserving all sibling section SHA-256 hashes.
 - `POST /api/projects/{project_id}/approve` — Validates QA freshness, claim scanner (`0` violations), and asset rights signatures; freezes read-only deliverables into `delivery/` and `versions/<version>/`; writes `release-manifest.json`; and creates the verified archive zip.
-- `POST /api/projects/{project_id}/prune` — Executes dry-run (`mode="plan"`) or safe staging cleanup (`mode="prune"`) after verifying the backup archive zip.
+- `POST /api/projects/{project_id}/prune` — Executes read-only staging inspection (`mode="plan"`, including pre-approval reclaimable draft asset scans with approval onboarding guidance) or safe staging cleanup (`mode="prune"`, unlocked only after `release_frozen` and verified backup archive creation).
 - `GET /api/projects/{project_id}/ghl-export` — Compiles scoped GoHighLevel snippet with `@keyframes` namespacing, absolute CDN URL rewriting, and simulation verification.
 - `GET /ghl-preview/{project_id}` — Renders live GoHighLevel Funnel Host Simulator page embedding `#ghl-ev-engine-root-{project_id}` inside a hostile host stylesheet.
 - `GET /preview/{project_id}/{subpath:path}` — Serves `release-candidate/` or `website/` files inside a CSP sandbox (`X-Content-Type-Options: nosniff`).
@@ -735,11 +745,11 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 
 ## 14. Testing & Quality Assurance
 
-The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
+The codebase is governed by a strict Definition of Done enforced via `Node` (TypeScript parity), `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Compile TypeScript studio bundle, then run linting, static type analysis, and all 222 automated tests
-node scripts/build_frontend.mjs && uv run --no-sync ruff check . && uv run --no-sync pyright && uv run --no-sync pytest -v
+# Compile & syntax-check TypeScript studio bundle, then run linting, static type analysis, and all 224 automated tests
+node scripts/build_frontend.mjs && node --check app/static/studio.js && uv run --no-sync ruff check . && uv run --no-sync pyright && uv run --no-sync pytest -v
 ```
 
 Or using `make` / `just`:
@@ -750,46 +760,45 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (222 Tests Across 38 Modules)
+### Complete Test Suite Breakdown (224 Tests Across 38 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
-| `tests/test_studio_frontend_dod.py` | 3 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/stages` 9-stage PDF telemetry (including mid-pipeline failure states), `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune`, interactive blueprint bar (`data-ev-blueprint-bar`), guide drawer, live stepper modal (`data-ev-live-stepper`), and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
+| `tests/test_studio_frontend_dod.py` | 4 | TypeScript Monograph Studio Cockpit & full browser DoD controls: verifies `frontend/src/*.ts` sources and compiled `/static/studio.js` bundle, `/api/projects/{id}/dod-status` 8-gate ledger, `/api/projects/{id}/stages` 9-stage PDF telemetry (including mid-pipeline failure states), `/api/projects/{id}/section/{name}` canonical HTML + SHA-256 inspector, `/api/projects/{id}/confirm-all-rights`, `/api/projects/{id}/prune` pre-approval staging scan (`mode="plan"`), `clean_display_fact` brand sanitization, interactive blueprint bar (`data-ev-blueprint-bar`), guide drawer, live stepper modal (`data-ev-live-stepper`), and Swiss editorial Monograph UI (`data-ev-studio="monograph"`). |
 | `tests/test_security_review_fixes.py` | 7 | Security code review regression suite: verifies `_container_safe_qa_runner` fails closed without fabricating `passed=True` QA reports, blocks `/preview/` and `/assets/` access to `research/`, enforces CSP sandbox + `nosniff` + `Content-Disposition: attachment` on SVGs, enforces `hmac.compare_digest` token auth on `GET` endpoints (`/api/projects/.../summary`, `/jobs/{id}`), sanitizes/redacts internal job error paths & secrets, strips `<script>`/`on*`/`javascript:` from downloaded SVGs at crawl time (`sanitize_svg_bytes`), enforces strict `PROJECT_ID_RE` slug allow-list in Cockpit, and verifies `EDITVISTA_API_TOKEN` headers in all `n8n/*.json` workflows. |
 | `tests/test_remediation_adversarial.py` | 10 | Adversarial regression suite for audit findings F1–F8: short approval token rejection, corrupted `visual-critique.json` blocking, mandatory `rights-audit.jsonl` enforcement, Cockpit bearer token & fail-closed non-loopback bind/host auth (`validate_bind_security`), `unavailable` critic blocking, fast non-vision provider error, targeted CSS revision scoping, perceptual dedupe + `DecompressionBombError` guard, and `@keyframes` GHL namespacing. |
 | `tests/test_claim_scanner.py` | 8 | Unsupported-claim scanner unit tests: blocks unverified money, percentage, phone, email, experience, and credential tokens while ignoring `<style>`/`<script>` blocks and allowing verified-fact-backed copy. |
 | `tests/test_cockpit_e2e_controls.py` | 1 | Cockpit end-to-end intake & recovery controls: verifies `POST /api/projects` (`run_now: true`), `POST /api/projects/{id}/resume`, `GET /dashboard` Run Pipeline Now form, and `GET /review/{id}` Resume Job button. |
 | `tests/test_bespoke_generator.py` | 2 | Bespoke LLM-authored section synthesis: accepts fact-grounded bespoke HTML sections and rejects/falls back deterministically when LLM output contains unsupported claims. |
 | `tests/test_dod_acceptance.py` | 1 | Full Definition of Done (DoD) lifecycle test: URL intake -> simulated QA crash -> `resume=True` recovery -> review summary -> bespoke hero -> single-section revision with sibling hash invariance -> rights confirmation -> immutable approval -> local + GHL export with zero unsupported claims -> `cleanup(..., mode="prune", confirm=True)` after verified archive creation. |
-| :--- | :---: | :--- |
 | `tests/test_ssrf_rebinding.py` | 29 | Comprehensive network attack testing: RFC 1918 private IPs, loopback (`127.0.0.1`, `::1`), link-local / cloud metadata (`169.254.169.254`), CGNAT (`100.64.0.0/10`), IPv4-mapped IPv6, integer/octal/hex IP literals, redirect blocking, multi-record DNS rejection, and single-resolution DNS rebinding TOCTOU defense. |
-| `tests/test_llm_adapter.py` | 13 | Multimodal LLM adapter verification: SHA-256 disk cache hits with text and images, SQLite budget persistence surviving restarts, upfront cost estimation blocking before spending, retry tracking against call caps, secret redaction, and path traversal rejection for image inputs. |
+| `tests/test_llm_adapter.py` | 14 | Multimodal LLM adapter verification: SHA-256 disk cache hits with text and images, SQLite budget persistence surviving restarts, upfront cost estimation blocking before spending, retry tracking against call caps, OpenRouter/provider routing, secret redaction, and path traversal rejection for image inputs. |
 | `tests/test_contracts.py` | 10 | Pydantic v2 contract integrity: `StageInput`, `StageOutput`, `Asset`, `Claim`, timezone-aware UTC datetime enforcement, non-empty source text verification, and `rights_confirmed_for_preview=False` defaults. |
 | `tests/test_social_collect.py` | 10 | Subprocess social collection: `--i-have-permission` flag enforcement, dry-run `--dump-json` post timestamp verification, EXIF/GPS metadata stripping, corrupt image rejection, and non-crashing failure classification (`login_required`, `rate_limited`, `extractor_broken`, `unknown`). |
 | `tests/test_approval_archival.py` | 8 | Approval release gate: blocks export on critical QA defects or unconfirmed asset rights; stale QA rejection via candidate SHA-256 matching; read-only release freeze of full PDF §2/§5 bundle (`approved-homepage.html`, `ghl-ready.html`, `asset-manifest.json`, `business-facts.json`, `design-decisions.json`, `qa-report.json`, `change-log.md`, `retained-assets.json`, `release-manifest.json`) in `delivery/` and `versions/vN/`; release manifest verification; and immunity of delivery files during cleanup. |
 | `tests/test_audit_invariants.py` | 7 | Cross-module engineering audit invariants: rerun preservation of `delivery/` and `versions/`; `verify_release()` asset tamper detection; unified canonical section state across revisions; composite `(project_id, asset_id)` SQLite primary key; `provider.default_model` resolution; unverified claim exclusion in LLM prompts; and root-scoped `.ev-ghl-scope` JS. |
 | `tests/test_mvf_gate.py` | 7 | Minimum Viable Facts (MVF) gate: verifies business name, contact path (`phone`, `booking_url`, `email`), and service classification (`animal_types`, `business_model`); asserts `needs_review` on missing items; tests `qa/mvf-report.json` emission; verifies `--acknowledge-gaps` bypass; tests omission of `#contact` CTAs when contact paths are unverified. |
 | `tests/test_golden_extraction.py` | 6 | Golden test corpus validation: verifies `scripts/freeze_site.py` crawler execution, loads 12 golden pet grooming fixtures across UK/US markets, and asserts baseline extraction precision/recall scoring against established thresholds. |
-| `tests/test_fact_extractor_locale.py` | 6 | Locale-aware fact extraction: tests UK postcode detection, international phone normalization via `phonenumbers` (GB, US, PK), 7-day structured hours parsing with completeness validation, promotion expiration checking, and multi-candidate conflict resolution (`conflicts_with`). |
-| `tests/test_rights_and_approval.py` | 6 | Auditable rights workflow: tests `confirm_asset_rights` CLI/API with legal bases (`client_provided`, `owner_permission`, `licensed`), verifies immutable `rights-audit.jsonl` log, asserts release gate refusal on unconfirmed assets, and validates audit trail integrity against tampered SHA-256 signatures. |
-| `tests/test_operator_cockpit.py` | 6 | Operator Review Cockpit Web UI: project listing and summary endpoints, responsive viewport HTML preview serving, surgical section revision endpoint, release approval trigger, scoped GHL snippet export, and live Funnel Host Simulator verification. |
+| `tests/test_fact_extractor_locale.py` | 7 | Locale-aware fact extraction: tests UK postcode detection, international phone normalization via `phonenumbers` (GB, US, PK), 7-day structured hours parsing with completeness validation, promotion expiration checking, multi-candidate conflict resolution (`conflicts_with`), and Yoast SEO `WebPage` JSON-LD `@type` conflict filtering. |
+| `tests/test_rights_and_approval.py` | 7 | Auditable rights workflow: tests `confirm_asset_rights` CLI/API with legal bases (`client_provided`, `owner_permission`, `licensed`), verifies immutable `rights-audit.jsonl` log, asserts release gate refusal on unconfirmed assets, and validates audit trail integrity against tampered SHA-256 signatures. |
+| `tests/test_operator_cockpit.py` | 8 | Operator Review Cockpit Web UI: project listing and summary endpoints, responsive viewport HTML preview serving, surgical section revision endpoint, release approval trigger, scoped GHL snippet export, asset subpath path-traversal guards, and live Funnel Host Simulator verification. |
 | `tests/test_section_generator_and_reviser.py` | 5 | Section-based synthesis: per-section file generation; index rebuilding from section files; markup security validation (rejects `<script>`, inline handlers, external URLs, oversized payloads); and 1440px / 390px Playwright pixel-invariance screenshot tests. |
 | `tests/test_collector.py` | 5 | Web crawler verification: local HTTP crawl, HTML snapshot SHA-256 verification, stripping of executable DOM nodes, prompt injection neutralization, and exact-substring fact extraction. |
 | `tests/test_exporter_release_gate.py` | 5 | Release packaging: ensures `export_approved_deliverables()` blocks when `delivery/` is unverified or any referenced asset lacks confirmed preview rights; generates deliverable bundles when all assets are confirmed. |
 | `tests/test_llm_pipeline_integration.py` | 5 | Real LLM pipeline integration: art direction brand positioning synthesis, fact-grounded section copy generation, visual critic defect feedback, surgical section code revisions, and offline FakeProvider fallbacks. |
-| `tests/test_pilot_milestone5.py` | 5 | Milestone 5 Five-Business Acceptance Pilot: end-to-end execution across 5 diverse archetypes, single-business CLI execution, audit report generation (`pilot-report.json`), and zero-fabrication assertion validation. |
+| `tests/test_pilot_milestone5.py` | 6 | Milestone 5 Five-Business Acceptance Pilot: end-to-end execution across 5 diverse archetypes, single-business CLI execution, audit report generation (`pilot-report.json`), and zero-fabrication assertion validation. |
 | `tests/test_pipeline_collect_failure.py` | 4 | Crawler failure handling: asserts pipeline cleanly halts on collect exceptions, prevents fabrication of synthetic `pages.json`, sets project status to `failed`, and logs actionable errors. |
 | `tests/test_ghl_embed_live.py` | 4 | Live GoHighLevel embed validation: relative asset URL rewriting to CDN base URLs and explicit asset maps, root container CSS encapsulation, IIFE JS isolation with `MutationObserver`, and simulation inside hostile host page templates. |
-| `tests/test_ghl_export.py` | 4 | GoHighLevel encapsulation: `#ghl-ev-engine-root-*` CSS scoping, `:root` variable rewriting, HTML body extraction, IIFE + `MutationObserver` JS encapsulation, and global `window.*` / `document.*` leakage rejection. |
+| `tests/test_ghl_export.py` | 5 | GoHighLevel encapsulation: `#ghl-ev-engine-root-*` CSS scoping, `:root` variable rewriting, HTML body extraction, IIFE + `MutationObserver` JS encapsulation, and global `window.*` / `document.*` leakage rejection. |
 | `tests/test_v2.py` | 4 | Regression suite: prevents social media domain spoofing, validates leap-year date boundary cutoffs, enforces retention manifest path-traversal blocks, and verifies archive/prune workflows. |
-| `tests/test_luxury_editorial_design.py` | 3 | Luxury editorial design system: verifies bespoke serif/sans typography (`--ev-font-display`, `--ev-font-sans`), dotted-leader spa menu rows (`ev-menu-leader`), asymmetric bento portfolio grids (`ev-portfolio-bento`), verified brand logo rendering, `suggested_sections` ordering, and structurally distinct archetype heroes (`salon`, `mobile`, `multi-species`). |
-| `tests/test_critic_and_reviser.py` | 3 | Design quality: automated visual critic defect detection, rejection of vague feedback (`"make it better"`), byte-identical sibling section preservation, and 3-iteration revision loop ceiling. |
-| `tests/test_curator_art_director.py` | 3 | Visual curation: filters out low-resolution images (`< 800px`) and baked-in promotional text; validates CSS focal percentages; extracts brand palettes; builds wireframes for mobile vs. salon groomers. |
+| `tests/test_luxury_editorial_design.py` | 4 | Luxury editorial design system: verifies bespoke serif/sans typography (`--ev-font-display`, `--ev-font-sans`), dotted-leader spa menu rows (`ev-menu-leader`), asymmetric bento portfolio grids (`ev-portfolio-bento`), verified brand logo rendering, `suggested_sections` ordering, and structurally distinct archetype heroes (`salon`, `mobile`, `multi-species`). |
+| `tests/test_critic_and_reviser.py` | 4 | Design quality: automated visual critic defect detection (across desktop `1440px` and mobile `390px`), rejection of vague feedback (`"make it better"`), byte-identical sibling section preservation, and 3-iteration revision loop ceiling. |
+| `tests/test_curator_art_director.py` | 4 | Visual curation & art direction: filters out low-resolution images (`< 800px`) and baked-in promotional text; validates CSS focal percentages; invokes vision LLM contact-sheet critique when configured; extracts brand palettes; builds wireframes for mobile vs. salon groomers. |
 | `tests/test_db_concurrency.py` | 3 | Database concurrency: verifies SQLite PRAGMA configuration (`WAL`, `busy_timeout=5000`), Pydantic CRUD transactions, and executes 10 concurrent threads writing 15 `BEGIN IMMEDIATE` transactions each with zero lock failures. |
 | `tests/test_import_meta_export.py` | 3 | Meta data ingestion: handles Instagram and Facebook exports across schema versions, deduplicates assets by SHA-256, enforces streaming ratio caps against zip bombs, and blocks `../` path traversal. |
 | `tests/test_local_preview.py` | 3 | Static QA validation: detects placeholder links (`#`, `javascript:`, empty CTAs), audits mobile menu toggling, and checks `prefers-reduced-motion` compliance. |
-| `tests/test_qa_engine.py` | 3 | 5-viewport Playwright runner: verifies WCAG 2.1 AA contrast mathematics, multi-viewport layout rendering, automated defect logging, and deterministic resource teardown. |
-| `tests/test_n8n_service_pipeline.py` | 3 | Worker service integration: validates FastAPI `/pipeline/run` and `/pipeline/{id}/approve` execution, and tests structural schema invariants across all 4 production 7-node n8n workflows. |
+| `tests/test_qa_engine.py` | 4 | 5-viewport Playwright runner: verifies WCAG 2.1 AA contrast mathematics, multi-viewport layout rendering, automated defect logging, and deterministic resource teardown. |
+| `tests/test_n8n_service_pipeline.py` | 4 | Worker service integration: validates FastAPI `/pipeline/run` and `/pipeline/{id}/approve` execution, and tests structural schema invariants across all 4 production 7-node n8n workflows. |
 | `tests/test_pipeline_rerun_safety.py` | 2 | Pipeline rerun safety: asserts draft reset clears only intermediate workspaces while strictly preserving approved `delivery/`, `versions/`, and release archives; tests `ProjectLockedError` on locked releases. |
 | `tests/test_pipeline_e2e.py` | 2 | End-to-end integration: full pipeline execution against an ephemeral grooming salon HTTP server, verifying inquiry CTA fallbacks when pricing is unverified. |
 | `tests/test_pipeline_lifecycle.py` | 2 | Crash recovery and state lifecycle: simulated mid-run pipeline crashes, `--resume` stage skipping, and `--pause-for-approval` human approval gate execution. |
@@ -865,7 +874,8 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
   - **Golden Regression Benchmark**: 12-business golden fixture corpus with one-to-one precision/recall scoring and `tmp_path` isolation so fixtures stay clean (`tests/golden/`, `scripts/freeze_site.py`).
   - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed QA runner (no synthetic `passed=True` fallback), shared constant-time `src/engine/auth.py` middleware across `GET` and mutating routes, sandboxed `/preview/` & `/assets/` serving with CSP + `nosniff`, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` in non-root Docker builds, pinned `n8nio/n8n:1.76.1`, and eager-scroll Playwright `loading="lazy"` inspection.
   - **Live Milestone 5 Status (5/5 Complete)**: Executed all 5 varied real pet grooming businesses end-to-end with live HTTP/Playwright collection, `GeminiProvider` (`gemini-3-flash-preview`) vision critique, 5-viewport Playwright QA (`5/5` passed on all 5), `claim_scanner` (`0` violations across all 5), rights confirmation, immutable `delivery/` + `versions/v1/` approval, verified backup archives, and GHL embed simulation (`is_valid=True`): `lilys-club.co.uk` (UK daycare/grooming), `pupcentral.co.uk` (UK salon), `fidosoffitzrovia.co.uk` (UK multi-species dog & cat), `modmuttsalon.com` (US strong-gallery salon), and `vanity-fur-doggrooming.co.uk` (UK mobile van).
-  - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, full PDF §2/§5 `delivery/` artifact parity on approval (`app/approval.py`), `--no-sync` CI hardening in `.github/workflows/ci.yml`, and verified zero horizontal overflow across 1440px Desktop through 360px Mobile (`222 passed`, `0` ruff/pyright errors).
+  - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, full PDF §2/§5 `delivery/` artifact parity on approval (`app/approval.py`), and `--no-sync` CI hardening in `.github/workflows/ci.yml`.
+  - **Yoast JSON-LD Brand Hardening, Pre-Approval Storage UX & CI Parity**: Filtered non-business `WebPage`/`WebSite` Yoast JSON-LD entities from `business_name` extraction (`app/fact_extractor.py`), stripped debug `(conflicts with ...)` strings before public HTML rendering via `clean_display_fact()` (`app/art_director.py`, `app/generator.py`), added read-only pre-approval staging scans (`mode="plan"`) in `app/cockpit.py`, disabled `Execute Safe Prune` (`#ev-btn-safe-prune`) in `frontend/src/studio.ts` until release freeze + archive verification, and enforced TypeScript bundle parity in `.github/workflows/ci.yml` (`224 passed`, `0` ruff/pyright errors).
 
 ---
 
