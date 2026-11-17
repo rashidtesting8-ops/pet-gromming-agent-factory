@@ -601,3 +601,53 @@ def test_verify_release_and_cli_fails_on_tampered_delivery_file_and_blocks_expor
     with pytest.raises((ReleaseVerificationError, ValueError)):
         safe_prune_project(project_root, dry_run=False)
 
+
+def test_approve_emits_full_pdf_delivery_bundle_and_verifies(tmp_path: Path) -> None:
+    """approve_release freezes all canonical PDF §2/§5 artifacts in delivery/ & versions/vN/."""
+    projects_dir, project_root = _scaffold_reviewable_project(tmp_path, "pdf-parity-salon")
+    (project_root / "design").mkdir(parents=True, exist_ok=True)
+    (project_root / "design" / "brand.json").write_text(
+        json.dumps({"primary": "#1B4332", "paper": "#F7F5F0"}),
+        encoding="utf-8",
+    )
+
+    cand_file = project_root / "release-candidate" / "standalone.html"
+    qa_path = project_root / "qa" / "qa-report.json"
+    qa_data = json.loads(qa_path.read_text(encoding="utf-8"))
+    qa_data["candidate_sha256"] = hashlib.sha256(cand_file.read_bytes()).hexdigest()
+    qa_path.write_text(json.dumps(qa_data), encoding="utf-8")
+
+    approve_release(
+        "pdf-parity-salon",
+        version="v1",
+        operator_name="Senior Auditor",
+        notes="Complete PDF artifact parity release",
+        projects_dir=projects_dir,
+    )
+
+    expected_pdf_files = (
+        "approved-homepage.html",
+        "ghl-ready.html",
+        "asset-manifest.json",
+        "business-facts.json",
+        "design-decisions.json",
+        "qa-report.json",
+        "change-log.md",
+        "retained-assets.json",
+        "release-manifest.json",
+    )
+    for folder in (project_root / "delivery", project_root / "versions" / "v1"):
+        for fname in expected_pdf_files:
+            fpath = folder / fname
+            assert fpath.is_file(), f"Missing PDF deliverable {fname} in {folder}"
+            assert (fpath.stat().st_mode & stat.S_IWRITE) == 0, f"{fpath} not frozen read-only"
+
+    design_path = project_root / "delivery" / "design-decisions.json"
+    design_dec = json.loads(design_path.read_text("utf-8"))
+    assert design_dec["version"] == "v1"
+    assert design_dec["brand"]["primary"] == "#1B4332"
+    assert "Complete PDF artifact parity release" in (
+        project_root / "delivery" / "change-log.md"
+    ).read_text("utf-8")
+    assert verify_release(project_root) is True
+

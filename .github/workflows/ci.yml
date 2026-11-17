@@ -28,13 +28,13 @@ jobs:
         run: uv sync --frozen --dev --extra browser
 
       - name: Install Playwright Chromium for 5-viewport QA tests
-        run: uv run playwright install --with-deps chromium
+        run: uv run --no-sync playwright install --with-deps chromium
 
       - name: Run Ruff linter
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Run Pyright static type checker
-        run: uv run pyright
+        run: uv run --no-sync pyright
 
       - name: Run full Pytest suite
-        run: uv run pytest -q
+        run: uv run --no-sync pytest -q

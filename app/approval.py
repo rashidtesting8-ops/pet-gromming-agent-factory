@@ -324,6 +324,61 @@ def compute_release_checksum_tree(project_root: Path) -> tuple[str, dict[str, st
     return tree_hasher.hexdigest(), checksum_tree, asset_signatures
 
 
+def _emit_pdf_delivery_artifacts(
+    project_root: Path,
+    delivery_dir: Path,
+    version_dir: Path,
+    *,
+    version: str,
+    operator_name: str,
+    notes: str,
+) -> None:
+    """Freeze PDF §2/§5 governance manifests inside delivery/ and versions/<version>/."""
+    copy_sources = (
+        ("asset-manifest.json", project_root / "research" / "asset-manifest.json", "[]\n"),
+        (
+            "business-facts.json",
+            project_root / "research" / "business-facts.json",
+            '{"facts": []}\n',
+        ),
+        ("qa-report.json", project_root / "qa" / "qa-report.json", "{}\n"),
+    )
+    for target_name, src_path, fallback in copy_sources:
+        payload = src_path.read_text(encoding="utf-8") if src_path.is_file() else fallback
+        for dest_root in (delivery_dir, version_dir):
+            _make_writable(dest_root / target_name)
+            _atomic_write_text(dest_root / target_name, payload)
+
+    design_payload: dict[str, Any] = {"version": version}
+    for key, fname in (
+        ("brand", "brand.json"),
+        ("creative_brief", "creative-brief.json"),
+        ("image_selection", "image-selection.json"),
+    ):
+        src_design = project_root / "design" / fname
+        if src_design.is_file():
+            try:
+                design_payload[key] = json.loads(src_design.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                design_payload[key] = {}
+    design_text = json.dumps(design_payload, indent=2) + "\n"
+    for dest_root in (delivery_dir, version_dir):
+        _make_writable(dest_root / "design-decisions.json")
+        _atomic_write_text(dest_root / "design-decisions.json", design_text)
+
+    existing_changelog = project_root / "design" / "change-log.md"
+    if existing_changelog.is_file():
+        changelog_text = existing_changelog.read_text(encoding="utf-8")
+    else:
+        changelog_text = (
+            f"# Release Changelog ({project_root.name})\n\n"
+            f"- **{version}** — Approved by `{operator_name}`: {notes}\n"
+        )
+    for dest_root in (delivery_dir, version_dir):
+        _make_writable(dest_root / "change-log.md")
+        _atomic_write_text(dest_root / "change-log.md", changelog_text)
+
+
 def approve_release(
     project_id_or_path: str | Path,
     version: str = "v1",
@@ -508,6 +563,17 @@ def approve_release(
             _make_writable(dst_asset)
             shutil.copy2(src_asset, dst_asset)
 
+    final_op = clean_op if clean_op is not None else "Dev"
+    final_notes = clean_notes if clean_notes is not None else "Verified"
+    _emit_pdf_delivery_artifacts(
+        project_root,
+        delivery_dir,
+        version_dir,
+        version=version,
+        operator_name=final_op,
+        notes=final_notes,
+    )
+
     # 5. Compute per-section hashes and release manifest
     approved_html_text = (delivery_dir / "approved-homepage.html").read_text(encoding="utf-8")
     section_hashes = compute_section_hashes(
@@ -517,8 +583,6 @@ def approve_release(
     version_hash, checksum_tree, asset_signatures = compute_release_checksum_tree(project_root)
 
     qa_report_sha256 = hashlib.sha256(qa_path.read_bytes()).hexdigest()
-    final_op = clean_op if clean_op is not None else "Dev"
-    final_notes = clean_notes if clean_notes is not None else "Verified"
     manifest = ReleaseManifest(
         project_id=resolved_project_id,
         version=version,

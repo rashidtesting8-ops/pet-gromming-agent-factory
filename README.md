@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 221 Passing](https://img.shields.io/badge/tests-221%20passing-brightgreen.svg)
+![Tests: 222 Passing](https://img.shields.io/badge/tests-222%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -278,7 +278,7 @@ flowchart LR
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
 | **Operator Cockpit & Studio UI** | FastAPI, TypeScript (`ES2022`) | `fastapi >= 0.115`, `Node >= 22.6` | Monograph Studio Cockpit UI (`127.0.0.1:8788`), compiled `app/static/studio.js` bundle, scoped GHL exporter, and async worker. |
 | **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:1.76.1` pinned | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 221-test suite across 38 modules. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 222-test suite across 38 modules. |
 
 ---
 
@@ -370,7 +370,7 @@ pet-gromming-agent-factory/
     ├── test_llm_adapter.py                  # 13 LLM caching, budget persistence, cost estimation & redaction tests
     ├── test_contracts.py                    # 10 Pydantic v2 stage contract and timezone validation tests
     ├── test_social_collect.py               # 10 gallery-dl permission, EXIF stripping & failure classification tests
-    ├── test_approval_archival.py            # 7 Approval gate, stale QA, asset rights audit & verify tests
+    ├── test_approval_archival.py            # 8 Approval gate, PDF §2/§5 bundle parity, stale QA & verify tests
     ├── test_audit_invariants.py             # 7 Cross-module invariants: rerun safety, asset tamper, unified reviser, DB PK
     ├── test_operator_cockpit.py             # 6 Operator review cockpit UI, viewports, audit, GHL export & simulator tests
     ├── test_section_generator_and_reviser.py# 5 Section output, index rebuild, validation & Playwright pixel tests
@@ -738,8 +738,8 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 The codebase is governed by a strict Definition of Done enforced via `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Compile TypeScript studio bundle, then run linting, static type analysis, and all 221 automated tests
-node scripts/build_frontend.mjs && uv run ruff check . && uv run pyright && uv run pytest -v
+# Compile TypeScript studio bundle, then run linting, static type analysis, and all 222 automated tests
+node scripts/build_frontend.mjs && uv run --no-sync ruff check . && uv run --no-sync pyright && uv run --no-sync pytest -v
 ```
 
 Or using `make` / `just`:
@@ -750,7 +750,7 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (221 Tests Across 38 Modules)
+### Complete Test Suite Breakdown (222 Tests Across 38 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
@@ -766,7 +766,7 @@ make test        # uv run pytest
 | `tests/test_llm_adapter.py` | 13 | Multimodal LLM adapter verification: SHA-256 disk cache hits with text and images, SQLite budget persistence surviving restarts, upfront cost estimation blocking before spending, retry tracking against call caps, secret redaction, and path traversal rejection for image inputs. |
 | `tests/test_contracts.py` | 10 | Pydantic v2 contract integrity: `StageInput`, `StageOutput`, `Asset`, `Claim`, timezone-aware UTC datetime enforcement, non-empty source text verification, and `rights_confirmed_for_preview=False` defaults. |
 | `tests/test_social_collect.py` | 10 | Subprocess social collection: `--i-have-permission` flag enforcement, dry-run `--dump-json` post timestamp verification, EXIF/GPS metadata stripping, corrupt image rejection, and non-crashing failure classification (`login_required`, `rate_limited`, `extractor_broken`, `unknown`). |
-| `tests/test_approval_archival.py` | 7 | Approval release gate: blocks export on critical QA defects or unconfirmed asset rights; stale QA rejection via candidate SHA-256 matching; read-only release freeze in `delivery/` and `versions/vN/`; release manifest verification; and immunity of delivery files during cleanup. |
+| `tests/test_approval_archival.py` | 8 | Approval release gate: blocks export on critical QA defects or unconfirmed asset rights; stale QA rejection via candidate SHA-256 matching; read-only release freeze of full PDF §2/§5 bundle (`approved-homepage.html`, `ghl-ready.html`, `asset-manifest.json`, `business-facts.json`, `design-decisions.json`, `qa-report.json`, `change-log.md`, `retained-assets.json`, `release-manifest.json`) in `delivery/` and `versions/vN/`; release manifest verification; and immunity of delivery files during cleanup. |
 | `tests/test_audit_invariants.py` | 7 | Cross-module engineering audit invariants: rerun preservation of `delivery/` and `versions/`; `verify_release()` asset tamper detection; unified canonical section state across revisions; composite `(project_id, asset_id)` SQLite primary key; `provider.default_model` resolution; unverified claim exclusion in LLM prompts; and root-scoped `.ev-ghl-scope` JS. |
 | `tests/test_mvf_gate.py` | 7 | Minimum Viable Facts (MVF) gate: verifies business name, contact path (`phone`, `booking_url`, `email`), and service classification (`animal_types`, `business_model`); asserts `needs_review` on missing items; tests `qa/mvf-report.json` emission; verifies `--acknowledge-gaps` bypass; tests omission of `#contact` CTAs when contact paths are unverified. |
 | `tests/test_golden_extraction.py` | 6 | Golden test corpus validation: verifies `scripts/freeze_site.py` crawler execution, loads 12 golden pet grooming fixtures across UK/US markets, and asserts baseline extraction precision/recall scoring against established thresholds. |
@@ -865,7 +865,7 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
   - **Golden Regression Benchmark**: 12-business golden fixture corpus with one-to-one precision/recall scoring and `tmp_path` isolation so fixtures stay clean (`tests/golden/`, `scripts/freeze_site.py`).
   - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed QA runner (no synthetic `passed=True` fallback), shared constant-time `src/engine/auth.py` middleware across `GET` and mutating routes, sandboxed `/preview/` & `/assets/` serving with CSP + `nosniff`, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` in non-root Docker builds, pinned `n8nio/n8n:1.76.1`, and eager-scroll Playwright `loading="lazy"` inspection.
   - **Live Milestone 5 Status (5/5 Complete)**: Executed all 5 varied real pet grooming businesses end-to-end with live HTTP/Playwright collection, `GeminiProvider` (`gemini-3-flash-preview`) vision critique, 5-viewport Playwright QA (`5/5` passed on all 5), `claim_scanner` (`0` violations across all 5), rights confirmation, immutable `delivery/` + `versions/v1/` approval, verified backup archives, and GHL embed simulation (`is_valid=True`): `lilys-club.co.uk` (UK daycare/grooming), `pupcentral.co.uk` (UK salon), `fidosoffitzrovia.co.uk` (UK multi-species dog & cat), `modmuttsalon.com` (US strong-gallery salon), and `vanity-fur-doggrooming.co.uk` (UK mobile van).
-  - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, and verified zero horizontal overflow across 1440px Desktop through 360px Mobile (`221 passed`, `0` ruff/pyright errors).
+  - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, full PDF §2/§5 `delivery/` artifact parity on approval (`app/approval.py`), `--no-sync` CI hardening in `.github/workflows/ci.yml`, and verified zero horizontal overflow across 1440px Desktop through 360px Mobile (`222 passed`, `0` ruff/pyright errors).
 
 ---
 
