@@ -12,12 +12,13 @@ import json
 import os
 import re
 import tempfile
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db import AssetProvenanceRecord
@@ -96,16 +97,62 @@ def _color_distance(c1: tuple[int, int, int], c2: tuple[int, int, int]) -> float
     return float(((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2 + (c1[2] - c2[2]) ** 2) ** 0.5)
 
 
+_SVG_COLOR_RE = re.compile(
+    r"(?:fill|stroke|stop-color|color)\s*[:=]\s*['\"]?\s*#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b",
+    re.IGNORECASE,
+)
+
+
+def _select_palette_from_ranked_rgbs(
+    ranked_rgbs: Sequence[tuple[int, int, int]],
+) -> tuple[str, str, str] | None:
+    if not ranked_rgbs:
+        return None
+
+    primary_rgb = ranked_rgbs[0]
+    secondary_hex = FALLBACK_WARM_AMBER_HEX
+    for candidate in ranked_rgbs[1:]:
+        if _color_distance(primary_rgb, candidate) >= 45.0:
+            secondary_hex = _rgb_to_hex(candidate)
+            break
+
+    return _rgb_to_hex(primary_rgb), secondary_hex, FALLBACK_SOFT_SAGE_HEX
+
+
+def _extract_colors_from_svg(logo_file: Path) -> tuple[str, str, str] | None:
+    """Extract dominant non-neutral SVG brand colors from CSS/attribute hex tokens."""
+    try:
+        svg_text = logo_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    counts: Counter[tuple[int, int, int]] = Counter()
+    for token in _SVG_COLOR_RE.findall(svg_text):
+        full = "".join(ch * 2 for ch in token) if len(token) == 3 else token
+        rgb = (int(full[0:2], 16), int(full[2:4], 16), int(full[4:6], 16))
+        if not _is_near_neutral(rgb):
+            counts[rgb] += 1
+
+    ranked_rgbs = [rgb for rgb, _cnt in counts.most_common()]
+    return _select_palette_from_ranked_rgbs(ranked_rgbs)
+
+
 def extract_colors_from_logo(logo_file: Path) -> tuple[str, str, str] | None:
     """Extract primary, secondary, and accent hex colors from a verified logo image."""
     if not logo_file.is_file():
         return None
 
-    with Image.open(logo_file) as img:
-        small = img.convert("RGB").resize((64, 64))
-        quantized = small.quantize(colors=8)
-        palette = quantized.getpalette()
-        color_counts = quantized.getcolors()
+    if logo_file.suffix.lower() == ".svg":
+        return _extract_colors_from_svg(logo_file)
+
+    try:
+        with Image.open(logo_file) as img:
+            small = img.convert("RGB").resize((64, 64))
+            quantized = small.quantize(colors=8)
+            palette = quantized.getpalette()
+            color_counts = quantized.getcolors()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
 
     if not palette or not color_counts:
         return None
@@ -121,19 +168,7 @@ def extract_colors_from_logo(logo_file: Path) -> tuple[str, str, str] | None:
         if not _is_near_neutral(rgb):
             ranked_rgbs.append(rgb)
 
-    if not ranked_rgbs:
-        return None
-
-    primary_rgb = ranked_rgbs[0]
-    secondary_rgb = FALLBACK_WARM_AMBER_HEX
-    for candidate in ranked_rgbs[1:]:
-        if _color_distance(primary_rgb, candidate) >= 45.0:
-            secondary_rgb = _rgb_to_hex(candidate)
-            break
-
-    primary_hex = _rgb_to_hex(primary_rgb)
-    secondary_hex = secondary_rgb if isinstance(secondary_rgb, str) else _rgb_to_hex(secondary_rgb)
-    return primary_hex, secondary_hex, FALLBACK_SOFT_SAGE_HEX
+    return _select_palette_from_ranked_rgbs(ranked_rgbs)
 
 
 class BrandIdentity(BaseModel):

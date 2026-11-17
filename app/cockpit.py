@@ -399,9 +399,12 @@ def _disk_stage_probe(
     total_facts = int(fm.get("total_facts", 0))
     asset_cnt = len(summary.get("assets", []))
 
-    brand_ok = (root / "design" / "brand-brief.json").is_file() or (
-        root / "design" / "theme.json"
-    ).is_file()
+    brand_ok = (
+        (root / "design" / "brand.json").is_file()
+        or (root / "design" / "creative-brief.json").is_file()
+        or (root / "design" / "brand-brief.json").is_file()
+        or (root / "design" / "theme.json").is_file()
+    )
     html_file = root / "website" / "index.html"
     crit_status = str(summary.get("visual_critique_status", "pending"))
     crit_done = (root / "qa" / "visual-critique.json").is_file() or crit_status != "pending"
@@ -516,8 +519,12 @@ def _build_project_stage_telemetry(
                 status = "failed"
                 evidence = err_msg or "Stage failed; click Resume Job to retry"
             elif raw_st in ("running", "started"):
-                status = "running"
-                found_active_running = True
+                if project_status == "failed":
+                    status = "failed"
+                    evidence = err_msg or "Stage halted unexpectedly; click Resume Job to retry"
+                else:
+                    status = "running"
+                    found_active_running = True
         elif done_on_disk:
             status = "completed"
         elif project_status == "running" and not found_active_running and step > 1:

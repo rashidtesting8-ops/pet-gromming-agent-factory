@@ -54,6 +54,7 @@ from app.db import (
     get_project,
     init_db,
     list_assets_for_project,
+    mark_running_jobs_failed,
     mark_running_jobs_interrupted,
     upsert_asset_provenance,
     upsert_business_fact,
@@ -746,6 +747,11 @@ def run_pipeline(
         )
     except Exception as exc:
         errors.append(str(exc))
+        mark_running_jobs_failed(
+            conn,
+            project_id=project_id,
+            error_message=str(exc),
+        )
         upsert_project(
             conn,
             ProjectRecord(

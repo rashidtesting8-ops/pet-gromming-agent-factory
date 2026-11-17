@@ -302,36 +302,70 @@ def get_job_run(conn: sqlite3.Connection, run_id: str) -> JobRunRecord | None:
     )
 
 
+def _update_running_jobs_status(
+    conn: sqlite3.Connection,
+    *,
+    status: str,
+    default_error: str,
+    project_id: str | None = None,
+    override_error: bool = False,
+) -> int:
+    """Transition active 'running' job_runs rows to a terminal interrupted/failed state."""
+    err_expr = "?" if override_error else "COALESCE(error_message, ?)"
+    with immediate_transaction(conn):
+        now_str = _utc_now().isoformat()
+        if project_id:
+            cursor = conn.execute(
+                f"""
+                UPDATE job_runs
+                SET status = ?,
+                    error_message = {err_expr},
+                    updated_at = ?
+                WHERE status = 'running' AND project_id = ?
+                """,
+                (status, default_error, now_str, project_id),
+            )
+        else:
+            cursor = conn.execute(
+                f"""
+                UPDATE job_runs
+                SET status = ?,
+                    error_message = {err_expr},
+                    updated_at = ?
+                WHERE status = 'running'
+                """,
+                (status, default_error, now_str),
+            )
+        return cursor.rowcount
+
+
 def mark_running_jobs_interrupted(
     conn: sqlite3.Connection,
     project_id: str | None = None,
 ) -> int:
     """Mark any job_runs left in 'running' state from a crashed earlier run as 'interrupted'."""
-    with immediate_transaction(conn):
-        now_str = _utc_now().isoformat()
-        if project_id:
-            cursor = conn.execute(
-                """
-                UPDATE job_runs
-                SET status = 'interrupted',
-                    error_message = COALESCE(error_message, 'Interrupted by prior crashed run'),
-                    updated_at = ?
-                WHERE status = 'running' AND project_id = ?
-                """,
-                (now_str, project_id),
-            )
-        else:
-            cursor = conn.execute(
-                """
-                UPDATE job_runs
-                SET status = 'interrupted',
-                    error_message = COALESCE(error_message, 'Interrupted by prior crashed run'),
-                    updated_at = ?
-                WHERE status = 'running'
-                """,
-                (now_str,),
-            )
-        return cursor.rowcount
+    return _update_running_jobs_status(
+        conn,
+        status="interrupted",
+        default_error="Interrupted by prior crashed run",
+        project_id=project_id,
+    )
+
+
+def mark_running_jobs_failed(
+    conn: sqlite3.Connection,
+    project_id: str,
+    error_message: str,
+) -> int:
+    """Mark currently active 'running' job_runs for a project as 'failed' with details."""
+    clean_err = error_message.strip() or "Pipeline stage failed"
+    return _update_running_jobs_status(
+        conn,
+        status="failed",
+        default_error=clean_err,
+        project_id=project_id,
+        override_error=True,
+    )
 
 
 def upsert_asset_provenance(

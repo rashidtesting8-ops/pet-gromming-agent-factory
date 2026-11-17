@@ -371,3 +371,36 @@ def test_curator_invokes_vision_llm_adapter_with_contact_sheet_when_provided(
     assert selection.salon_facility_or_van is not None
     assert selection.salon_facility_or_van.filename == "img_a.jpg"
 
+
+def test_art_director_handles_svg_and_corrupt_logo_without_crashing(tmp_path: Path) -> None:
+    """SVG vector logos extract authentic colors cleanly and corrupt logos fall back safely."""
+    svg_root = tmp_path / "projects" / "svg-brand-salon"
+    (svg_root / "research").mkdir(parents=True, exist_ok=True)
+    svg_logo = svg_root / "assets" / "website" / "brand-logo.svg"
+    svg_logo.parent.mkdir(parents=True, exist_ok=True)
+    svg_logo.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40">'
+        '<rect width="120" height="40" fill="#ffffff"/>'
+        '<path d="M0 0h20v20H0z" fill="#035b59"/>'
+        '<path d="M30 0h20v20H30z" fill="#035b59"/>'
+        '<circle cx="60" cy="20" r="10" fill="#f60"/>'
+        "</svg>",
+        encoding="utf-8",
+    )
+
+    brand_svg, _ = generate_art_direction(svg_root)
+    assert brand_svg.used_fallback_palette is False
+    assert brand_svg.primary_color == "#035B59"
+    assert brand_svg.secondary_color == "#FF6600"
+
+    corrupt_root = tmp_path / "projects" / "corrupt-logo-salon"
+    (corrupt_root / "research").mkdir(parents=True, exist_ok=True)
+    bad_logo = corrupt_root / "assets" / "website" / "logo.jpg"
+    bad_logo.parent.mkdir(parents=True, exist_ok=True)
+    bad_logo.write_bytes(b"not-a-valid-raster-image")
+
+    brand_bad, _ = generate_art_direction(corrupt_root)
+    assert brand_bad.used_fallback_palette is True
+    assert brand_bad.brand_needs_review is True
+
+

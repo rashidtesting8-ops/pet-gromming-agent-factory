@@ -5,7 +5,7 @@
 ![Toolchain: uv](https://img.shields.io/badge/toolchain-uv-purple.svg)
 ![Typecheck: pyright](https://img.shields.io/badge/typecheck-pyright-success.svg)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)
-![Tests: 224 Passing](https://img.shields.io/badge/tests-224%20passing-brightgreen.svg)
+![Tests: 226 Passing](https://img.shields.io/badge/tests-226%20passing-brightgreen.svg)
 
 **An evidence-preserving, local-first engine for automated media collection, cryptographic fact verification, locale-aware normalization, visual curation, luxury editorial art direction, per-section code generation, surgical revision, 5-viewport QA, budget-capped LLM adaptation, Minimum Viable Facts (MVF) gating, human-in-the-loop operator cockpit review, enterprise n8n studio orchestration, and immutable release packaging with GoHighLevel (GHL) isolation for bespoke pet grooming websites.**
 
@@ -278,7 +278,7 @@ flowchart LR
 | **State Storage** | SQLite (`sqlite3`) | Standard Library (WAL) | Relational state machine, stage manifests, idempotency keys, LLM budget locks. |
 | **Operator Cockpit & Studio UI** | FastAPI, TypeScript (`ES2022`) | `fastapi >= 0.115`, `Node >= 22.6` | Monograph Studio Cockpit UI (`127.0.0.1:8788`), compiled `app/static/studio.js` bundle, scoped GHL exporter, and async worker. |
 | **Workflow Automation** | n8n (Self-Hosted) | `n8nio/n8n:1.76.1` pinned | Enterprise 7-node branching graphs for webhook intake, live telemetry polling, and release sign-off. |
-| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 224-test suite across 38 modules. |
+| **Static Verification** | Ruff, Pyright, Pytest | `ruff >= 0.9`, `pyright >= 1.1`, `pytest >= 8.3` | Linting, strict type-checking, and comprehensive 226-test suite across 38 modules. |
 
 ---
 
@@ -748,7 +748,7 @@ The local worker daemon runs on `127.0.0.1:8787` to support automated jobs and n
 The codebase is governed by a strict Definition of Done enforced via `Node` (TypeScript parity), `ruff`, `pyright`, and `pytest`:
 
 ```bash
-# Compile & syntax-check TypeScript studio bundle, then run linting, static type analysis, and all 224 automated tests
+# Compile & syntax-check TypeScript studio bundle, then run linting, static type analysis, and all 226 automated tests
 node scripts/build_frontend.mjs && node --check app/static/studio.js && uv run --no-sync ruff check . && uv run --no-sync pyright && uv run --no-sync pytest -v
 ```
 
@@ -760,7 +760,7 @@ make typecheck   # uv run pyright
 make test        # uv run pytest
 ```
 
-### Complete Test Suite Breakdown (224 Tests Across 38 Modules)
+### Complete Test Suite Breakdown (226 Tests Across 38 Modules)
 
 | Test Module | Tests | Test Objectives & Invariant Coverage |
 | :--- | :---: | :--- |
@@ -787,13 +787,13 @@ make test        # uv run pytest
 | `tests/test_exporter_release_gate.py` | 5 | Release packaging: ensures `export_approved_deliverables()` blocks when `delivery/` is unverified or any referenced asset lacks confirmed preview rights; generates deliverable bundles when all assets are confirmed. |
 | `tests/test_llm_pipeline_integration.py` | 5 | Real LLM pipeline integration: art direction brand positioning synthesis, fact-grounded section copy generation, visual critic defect feedback, surgical section code revisions, and offline FakeProvider fallbacks. |
 | `tests/test_pilot_milestone5.py` | 6 | Milestone 5 Five-Business Acceptance Pilot: end-to-end execution across 5 diverse archetypes, single-business CLI execution, audit report generation (`pilot-report.json`), and zero-fabrication assertion validation. |
-| `tests/test_pipeline_collect_failure.py` | 4 | Crawler failure handling: asserts pipeline cleanly halts on collect exceptions, prevents fabrication of synthetic `pages.json`, sets project status to `failed`, and logs actionable errors. |
+| `tests/test_pipeline_collect_failure.py` | 5 | Crawler & downstream failure handling: asserts pipeline cleanly halts on collect or stage exceptions, marks active `job_runs` rows `'failed'` with error details, prevents synthetic `pages.json`, sets project status to `failed`, and logs actionable errors. |
 | `tests/test_ghl_embed_live.py` | 4 | Live GoHighLevel embed validation: relative asset URL rewriting to CDN base URLs and explicit asset maps, root container CSS encapsulation, IIFE JS isolation with `MutationObserver`, and simulation inside hostile host page templates. |
 | `tests/test_ghl_export.py` | 5 | GoHighLevel encapsulation: `#ghl-ev-engine-root-*` CSS scoping, `:root` variable rewriting, HTML body extraction, IIFE + `MutationObserver` JS encapsulation, and global `window.*` / `document.*` leakage rejection. |
 | `tests/test_v2.py` | 4 | Regression suite: prevents social media domain spoofing, validates leap-year date boundary cutoffs, enforces retention manifest path-traversal blocks, and verifies archive/prune workflows. |
 | `tests/test_luxury_editorial_design.py` | 4 | Luxury editorial design system: verifies bespoke serif/sans typography (`--ev-font-display`, `--ev-font-sans`), dotted-leader spa menu rows (`ev-menu-leader`), asymmetric bento portfolio grids (`ev-portfolio-bento`), verified brand logo rendering, `suggested_sections` ordering, and structurally distinct archetype heroes (`salon`, `mobile`, `multi-species`). |
 | `tests/test_critic_and_reviser.py` | 4 | Design quality: automated visual critic defect detection (across desktop `1440px` and mobile `390px`), rejection of vague feedback (`"make it better"`), byte-identical sibling section preservation, and 3-iteration revision loop ceiling. |
-| `tests/test_curator_art_director.py` | 4 | Visual curation & art direction: filters out low-resolution images (`< 800px`) and baked-in promotional text; validates CSS focal percentages; invokes vision LLM contact-sheet critique when configured; extracts brand palettes; builds wireframes for mobile vs. salon groomers. |
+| `tests/test_curator_art_director.py` | 5 | Visual curation & art direction: filters out low-resolution images (`< 800px`) and baked-in promotional text; validates CSS focal percentages; invokes vision LLM contact-sheet critique when configured; extracts raster and `.svg` brand logo palettes with safe corrupt-logo fallback; builds wireframes for mobile vs. salon groomers. |
 | `tests/test_db_concurrency.py` | 3 | Database concurrency: verifies SQLite PRAGMA configuration (`WAL`, `busy_timeout=5000`), Pydantic CRUD transactions, and executes 10 concurrent threads writing 15 `BEGIN IMMEDIATE` transactions each with zero lock failures. |
 | `tests/test_import_meta_export.py` | 3 | Meta data ingestion: handles Instagram and Facebook exports across schema versions, deduplicates assets by SHA-256, enforces streaming ratio caps against zip bombs, and blocks `../` path traversal. |
 | `tests/test_local_preview.py` | 3 | Static QA validation: detects placeholder links (`#`, `javascript:`, empty CTAs), audits mobile menu toggling, and checks `prefers-reduced-motion` compliance. |
@@ -875,7 +875,8 @@ Per [`docs/DEVELOPER_BRIEF.md`](docs/DEVELOPER_BRIEF.md), the repository impleme
   - **Senior Audit Remediation & Fail-Closed Hardening**: Non-acknowledgeable `app/claim_scanner.py` gate, perceptual image dedupe (`hamming_distance_hex <= 8`) + `DecompressionBombError` guard, `@keyframes` GHL namespacing, `require_vision=True` adapter selection, fail-closed QA runner (no synthetic `passed=True` fallback), shared constant-time `src/engine/auth.py` middleware across `GET` and mutating routes, sandboxed `/preview/` & `/assets/` serving with CSP + `nosniff`, `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` in non-root Docker builds, pinned `n8nio/n8n:1.76.1`, and eager-scroll Playwright `loading="lazy"` inspection.
   - **Live Milestone 5 Status (5/5 Complete)**: Executed all 5 varied real pet grooming businesses end-to-end with live HTTP/Playwright collection, `GeminiProvider` (`gemini-3-flash-preview`) vision critique, 5-viewport Playwright QA (`5/5` passed on all 5), `claim_scanner` (`0` violations across all 5), rights confirmation, immutable `delivery/` + `versions/v1/` approval, verified backup archives, and GHL embed simulation (`is_valid=True`): `lilys-club.co.uk` (UK daycare/grooming), `pupcentral.co.uk` (UK salon), `fidosoffitzrovia.co.uk` (UK multi-species dog & cat), `modmuttsalon.com` (US strong-gallery salon), and `vanity-fur-doggrooming.co.uk` (UK mobile van).
   - **Monograph Studio v2.0 & Live Stage Telemetry**: Added client-side URL auto-slug/name derivation & sanitization, an interactive 9-stage PDF blueprint bar + topbar 3×3 plain-English explainer grid, live 9-stage polling modal (`GET /api/projects/{id}/stages`) fusing SQLite `job_runs` with real disk artifacts, standalone `scripts/verify_dod.py` 8-gate compliance auditor, full PDF §2/§5 `delivery/` artifact parity on approval (`app/approval.py`), and `--no-sync` CI hardening in `.github/workflows/ci.yml`.
-  - **Yoast JSON-LD Brand Hardening, Pre-Approval Storage UX & CI Parity**: Filtered non-business `WebPage`/`WebSite` Yoast JSON-LD entities from `business_name` extraction (`app/fact_extractor.py`), stripped debug `(conflicts with ...)` strings before public HTML rendering via `clean_display_fact()` (`app/art_director.py`, `app/generator.py`), added read-only pre-approval staging scans (`mode="plan"`) in `app/cockpit.py`, disabled `Execute Safe Prune` (`#ev-btn-safe-prune`) in `frontend/src/studio.ts` until release freeze + archive verification, and enforced TypeScript bundle parity in `.github/workflows/ci.yml` (`224 passed`, `0` ruff/pyright errors).
+  - **Yoast JSON-LD Brand Hardening, Pre-Approval Storage UX & CI Parity**: Filtered non-business `WebPage`/`WebSite` Yoast JSON-LD entities from `business_name` extraction (`app/fact_extractor.py`), stripped debug `(conflicts with ...)` strings before public HTML rendering via `clean_display_fact()` (`app/art_director.py`, `app/generator.py`), added read-only pre-approval staging scans (`mode="plan"`) in `app/cockpit.py`, disabled `Execute Safe Prune` (`#ev-btn-safe-prune`) in `frontend/src/studio.ts` until release freeze + archive verification, and enforced TypeScript bundle parity in `.github/workflows/ci.yml`.
+  - **SVG Brand Logo Palette Extraction & Stage Failure Observability**: Added direct CSS/attribute hex palette extraction for `.svg` vector logos and `UnidentifiedImageError`/`OSError` fallback in `app/art_director.py` (`_extract_colors_from_svg`), persisted downstream stage failure reasons onto active `job_runs` via `mark_running_jobs_failed()` (`app/db.py`, `app/pipeline.py`), and aligned `app/cockpit.py` stage probe artifacts + failed-run UI mapping (`226 passed`, `0` ruff/pyright errors).
 
 ---
 

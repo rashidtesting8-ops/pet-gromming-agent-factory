@@ -330,3 +330,40 @@ def test_broken_single_media_download_does_not_abort_pipeline(
     proj = get_project(conn, project_id)
     assert proj is not None and proj.status == "awaiting_approval"
     conn.close()
+
+
+def test_downstream_stage_failure_marks_active_job_failed_with_error_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Downstream stage errors must mark the active job_run 'failed' with error details."""
+    db_path = tmp_path / "editvista.sqlite3"
+    project_id = "stage5-crash-salon"
+
+    monkeypatch.setattr(pipeline_module, "collect", _mock_successful_collect)
+
+    def _crashing_art_director(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("boom in stage 5 art director")
+
+    monkeypatch.setattr(pipeline_module, "generate_art_direction", _crashing_art_director)
+
+    with pytest.raises(RuntimeError, match="boom in stage 5 art director"):
+        run_pipeline(
+            url="https://stage5fail.example.com",
+            business_name="Stage 5 Crash",
+            business_id=project_id,
+            projects_dir=tmp_path,
+            db_path=db_path,
+            qa_runner=_dummy_qa_runner,
+        )
+
+    conn = connect_db(db_path)
+    proj = get_project(conn, project_id)
+    assert proj is not None and proj.status == "failed"
+
+    job = get_job_run(conn, f"{project_id}:art_director")
+    conn.close()
+    assert job is not None
+    assert job.status == "failed"
+    assert job.error_message is not None
+    assert "boom in stage 5 art director" in job.error_message
+
