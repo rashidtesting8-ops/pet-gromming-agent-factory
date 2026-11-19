@@ -66,6 +66,7 @@ from app.generator import generate_website
 from app.mvf_gate import enforce_mvf_gate
 from app.qa_engine import QADefectReport, run_qa_engine
 from app.reviser import MAX_REVISION_ITERATIONS, apply_targeted_revisions
+from app.social_collect import collect_social
 from app.visual_critic import run_visual_critic
 
 QARunnerFn = Callable[..., QADefectReport]
@@ -159,46 +160,120 @@ def _stage_downloaded_assets_for_curator(
     project_root: Path,
     project_id: str,
 ) -> list[AssetProvenanceRecord]:
-    """Copy downloaded website media into `assets/optimized/` and record SQLite provenance."""
-    manifest_path = project_root / "research" / "asset-manifest.json"
+    """Copy downloaded website/social media into `assets/optimized/` and log SQLite provenance."""
     optimized_dir = project_root / "assets" / "optimized"
     optimized_dir.mkdir(parents=True, exist_ok=True)
     provenance_records: list[AssetProvenanceRecord] = []
 
-    if not manifest_path.is_file():
-        return provenance_records
+    manifest_path = project_root / "research" / "asset-manifest.json"
+    if manifest_path.is_file():
+        items: list[dict[str, Any]] = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for idx, item in enumerate(items, start=1):
+            if item.get("status") != "downloaded":
+                continue
+            rel_file = str(item.get("file", ""))
+            sha256 = str(item.get("sha256", ""))
+            src_url = str(item.get("url", ""))
+            if not rel_file or not sha256:
+                continue
 
-    items: list[dict[str, Any]] = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for idx, item in enumerate(items, start=1):
-        if item.get("status") != "downloaded":
-            continue
-        rel_file = str(item.get("file", ""))
-        sha256 = str(item.get("sha256", ""))
-        src_url = str(item.get("url", ""))
-        if not rel_file or not sha256:
-            continue
+            src_path = project_root / rel_file
+            if not src_path.is_file():
+                continue
 
-        src_path = project_root / rel_file
-        if not src_path.is_file():
-            continue
+            dest_path = optimized_dir / src_path.name
+            if not dest_path.is_file():
+                shutil.copy2(src_path, dest_path)
 
-        dest_path = optimized_dir / src_path.name
-        if not dest_path.is_file():
-            shutil.copy2(src_path, dest_path)
+            # First-party downloaded assets retain their manifest preview-confirmation status.
+            rec = AssetProvenanceRecord(
+                asset_id=f"{project_id}-asset-{idx}-{sha256[:10]}",
+                project_id=project_id,
+                sha256_hash=sha256,
+                source_url=src_url or "https://local.invalid/asset",
+                local_path=rel_file,
+                rights_confirmed_for_preview=bool(item.get("rights_confirmed_for_preview", False)),
+            )
+            upsert_asset_provenance(conn, rec)
+            provenance_records.append(rec)
 
-        # Mark downloaded first-party site assets as preview-confirmed for local review
-        rec = AssetProvenanceRecord(
-            asset_id=f"{project_id}-asset-{idx}-{sha256[:10]}",
-            project_id=project_id,
-            sha256_hash=sha256,
-            source_url=src_url or "https://local.invalid/asset",
-            local_path=rel_file,
-            rights_confirmed_for_preview=bool(item.get("rights_confirmed_for_preview", False)),
-        )
-        upsert_asset_provenance(conn, rec)
-        provenance_records.append(rec)
+    social_manifest_path = project_root / "research" / "social-media-manifest.json"
+    if social_manifest_path.is_file():
+        try:
+            social_items: list[dict[str, Any]] = json.loads(
+                social_manifest_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            social_items = []
+        for idx, item in enumerate(social_items, start=1):
+            rel_file = str(item.get("file") or item.get("optimized_file") or "")
+            sha256 = str(item.get("sha256") or "")
+            src_url = str(
+                item.get("original_post_url")
+                or item.get("source_post_url")
+                or item.get("source_profile_url")
+                or ""
+            )
+            if not rel_file or not sha256:
+                continue
+            rec = AssetProvenanceRecord(
+                asset_id=f"{project_id}-social-{idx}-{sha256[:10]}",
+                project_id=project_id,
+                sha256_hash=sha256,
+                source_url=src_url or "https://local.invalid/social",
+                local_path=rel_file,
+                rights_confirmed_for_preview=bool(item.get("rights_confirmed_for_preview", False)),
+            )
+            upsert_asset_provenance(conn, rec)
+            provenance_records.append(rec)
 
     return provenance_records
+
+
+def _collect_opt_in_social_sources(
+    project_root: Path,
+    *,
+    warnings: list[str],
+) -> None:
+    """Run opt-in public social collection for Instagram/Facebook links discovered on the site."""
+    sources_path = project_root / "research" / "social-sources.json"
+    if not sources_path.is_file():
+        return
+    try:
+        sources = json.loads(sources_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(sources, dict):
+        return
+
+    for platform in ("facebook", "instagram"):
+        raw_urls = sources.get(platform)
+        if not isinstance(raw_urls, list) or not raw_urls:
+            continue
+        # Prefer profile URLs first before individual post/reel embed URLs
+        ordered_urls = sorted(
+            [str(u).strip() for u in raw_urls if isinstance(u, str) and u.strip()],
+            key=lambda u: ("/p/" in u or "/reel/" in u or "/embed" in u, u),
+        )
+        for target_url in ordered_urls[:5]:
+            res = collect_social(
+                project_root,
+                platform,
+                target_url,
+                max_files=40,
+                days_limit=365,
+                i_have_permission=True,
+            )
+            if (
+                res.get("files_added", 0) > 0
+                and "/p/" not in target_url
+                and "/reel/" not in target_url
+            ):
+                break
+            if res.get("status") == "review_needed" and res.get("reason"):
+                warnings.append(
+                    f"Social {platform} ({target_url}): {res.get('reason')}"
+                )
 
 
 class ProjectLockedError(RuntimeError):
@@ -255,6 +330,7 @@ def run_pipeline(
     llm_adapter: Any = None,
     new_draft: bool = False,
     acknowledge_gaps: bool = False,
+    collect_social_media: bool = False,
 ) -> PipelineRunResult:
     """Execute the EditVista lifecycle with SQLite idempotency, resumption, and approval gate."""
     projects_root = Path(projects_dir).resolve()
@@ -337,8 +413,8 @@ def run_pipeline(
                 collect_summary = collect(
                     url,
                     staging_collect_dir,
-                    max_pages=10,
-                    max_media=40,
+                    max_pages=25,
+                    max_media=80,
                     allow_private=effective_allow_private,
                 )
                 crawled_folder = Path(str(collect_summary["project_folder"]))
@@ -387,6 +463,8 @@ def run_pipeline(
                     f"Collection failed for '{url}': {exc}. "
                     "Cannot build website without verified source content."
                 ) from exc
+            if collect_social_media:
+                _collect_opt_in_social_sources(project_root, warnings=warnings)
             provenance_records = _stage_downloaded_assets_for_curator(
                 conn, project_root, project_id
             )
@@ -962,6 +1040,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Acknowledge missing Minimum Viable Facts (MVF) and continue to awaiting_approval",
     )
+    parser.add_argument(
+        "--i-have-social-permission",
+        action="store_true",
+        default=False,
+        help="Opt-in flag to collect public Instagram/Facebook media discovered on the site",
+    )
     return parser
 
 
@@ -1012,6 +1096,7 @@ def main(
         qa_runner=qa_runner,
         new_draft=bool(args.new_draft),
         acknowledge_gaps=bool(args.acknowledge_gaps),
+        collect_social_media=bool(args.i_have_social_permission),
     )
     return 0 if result.status in ("completed", "awaiting_approval") else 1
 

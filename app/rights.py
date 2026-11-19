@@ -13,10 +13,13 @@ from typing import Any, Literal
 
 from app.db import (
     AssetProvenanceRecord,
+    ProjectRecord,
     connect_db,
+    get_project,
     init_db,
     list_assets_for_project,
     upsert_asset_provenance,
+    upsert_project,
 )
 
 RightsBasis = Literal["client_provided", "owner_permission", "licensed"]
@@ -100,18 +103,22 @@ def confirm_asset_rights(
         raise ValueError(f"Project directory not found: {project_root}")
 
     project_id = project_root.name
-    manifest_path = project_root / "research" / "asset-manifest.json"
+    manifest_paths = [
+        project_root / "research" / "asset-manifest.json",
+        project_root / "research" / "social-media-manifest.json",
+    ]
     audit_path = project_root / "research" / "rights-audit.jsonl"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
-    manifest_items: list[dict[str, Any]] = []
-    if manifest_path.is_file():
-        try:
-            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(raw, list):
-                manifest_items = raw
-        except Exception:
-            manifest_items = []
+    loaded_manifests: list[tuple[Path, list[dict[str, Any]]]] = []
+    for mpath in manifest_paths:
+        if mpath.is_file():
+            try:
+                raw = json.loads(mpath.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    loaded_manifests.append((mpath, raw))
+            except Exception:
+                pass
 
     resolved_db_path = (
         Path(db_path).resolve()
@@ -120,79 +127,131 @@ def confirm_asset_rights(
     )
     conn = connect_db(resolved_db_path)
     init_db(conn)
+    if get_project(conn, project_id) is None:
+        upsert_project(
+            conn,
+            ProjectRecord(
+                project_id=project_id,
+                business_name=project_id,
+                primary_url="https://local.invalid/",
+                status="running",
+            ),
+        )
 
     existing_db_records = {r.asset_id: r for r in list_assets_for_project(conn, project_id)}
 
     confirmed_entries: list[dict[str, Any]] = []
     target_clean = (asset or "").strip()
 
-    # Find candidates from manifest or SQLite
     matched_count = 0
     now_iso = _utc_now().isoformat()
+    modified_manifests: list[tuple[Path, list[dict[str, Any]]]] = []
 
-    for item in manifest_items:
-        rel_file = str(item.get("file") or "").strip()
-        if not rel_file:
-            continue
-        item_sha = str(item.get("sha256") or "")
-        file_name = Path(rel_file).name
+    for mpath, manifest_items in loaded_manifests:
+        manifest_changed = False
+        for item in manifest_items:
+            if not isinstance(item, dict):
+                continue
+            rel_file = str(item.get("file") or "").strip()
+            opt_rel_file = str(item.get("optimized_file") or "").strip()
+            if not rel_file and not opt_rel_file:
+                continue
+            item_sha = str(item.get("sha256") or "")
+            opt_sha = str(item.get("optimized_sha256") or "")
+            primary_rel = rel_file or opt_rel_file
+            file_name = Path(primary_rel).name
+            opt_name = Path(opt_rel_file).name if opt_rel_file else ""
 
-        matches = all_assets or (
-            target_clean in (item_sha, rel_file, file_name)
-            or (item_sha and target_clean.startswith(item_sha[:12]))
-        )
-        if not matches:
-            continue
-
-        matched_count += 1
-        # Determine actual file on disk to verify current bytes
-        disk_path = project_root / rel_file
-        if disk_path.is_file():
-            actual_sha = hashlib.sha256(disk_path.read_bytes()).hexdigest()
-        else:
-            actual_sha = item_sha
-
-        item["rights_confirmed_for_preview"] = True
-        item["sha256"] = actual_sha
-        item["rights_basis"] = clean_basis
-        item["rights_operator"] = clean_operator
-        item["rights_evidence"] = clean_evidence
-
-        audit_entry = {
-            "who": clean_operator,
-            "when": now_iso,
-            "basis": clean_basis,
-            "evidence": clean_evidence,
-            "asset_sha256": actual_sha,
-            "sha256": actual_sha,
-            "file": rel_file,
-        }
-        confirmed_entries.append(audit_entry)
-
-        # Update SQLite
-        asset_id = file_name or rel_file
-        source_url = str(item.get("url") or item.get("source_url") or "")
-        existing_rec = existing_db_records.get(asset_id)
-        if existing_rec:
-            updated_rec = AssetProvenanceRecord(
-                asset_id=existing_rec.asset_id,
-                project_id=project_id,
-                sha256_hash=actual_sha,
-                phash=existing_rec.phash,
-                source_url=existing_rec.source_url,
-                local_path=existing_rec.local_path,
-                rights_confirmed_for_preview=True,
+            candidate_keys = {
+                k for k in (item_sha, opt_sha, rel_file, opt_rel_file, file_name, opt_name) if k
+            }
+            matches = all_assets or (
+                target_clean in candidate_keys
+                or (item_sha and target_clean.startswith(item_sha[:12]))
+                or (opt_sha and target_clean.startswith(opt_sha[:12]))
             )
-        else:
-            updated_rec = AssetProvenanceRecord(
-                asset_id=asset_id,
-                project_id=project_id,
-                sha256_hash=actual_sha,
-                source_url=source_url,
-                local_path=rel_file,
-                rights_confirmed_for_preview=True,
+            if not matches:
+                continue
+
+            matched_count += 1
+            manifest_changed = True
+            disk_path = project_root / primary_rel
+            actual_sha = (
+                hashlib.sha256(disk_path.read_bytes()).hexdigest()
+                if disk_path.is_file()
+                else item_sha
             )
-        upsert_asset_provenance(conn, updated_rec)
+
+            item["rights_confirmed_for_preview"] = True
+            item["sha256"] = actual_sha
+            item["rights_basis"] = clean_basis
+            item["rights_operator"] = clean_operator
+            item["rights_evidence"] = clean_evidence
+
+            confirmed_entries.append(
+                {
+                    "who": clean_operator,
+                    "when": now_iso,
+                    "basis": clean_basis,
+                    "evidence": clean_evidence,
+                    "asset_sha256": actual_sha,
+                    "sha256": actual_sha,
+                    "file": primary_rel,
+                }
+            )
+
+            # Social & optimized copies may have EXIF stripped, giving a distinct disk SHA-256.
+            if opt_rel_file and opt_rel_file != primary_rel:
+                opt_disk = project_root / opt_rel_file
+                if opt_disk.is_file():
+                    actual_opt_sha = hashlib.sha256(opt_disk.read_bytes()).hexdigest()
+                    item["optimized_sha256"] = actual_opt_sha
+                    if actual_opt_sha != actual_sha:
+                        confirmed_entries.append(
+                            {
+                                "who": clean_operator,
+                                "when": now_iso,
+                                "basis": clean_basis,
+                                "evidence": clean_evidence,
+                                "asset_sha256": actual_opt_sha,
+                                "sha256": actual_opt_sha,
+                                "file": opt_rel_file,
+                            }
+                        )
+
+            asset_id = file_name or primary_rel
+            source_url = str(
+                item.get("url")
+                or item.get("source_url")
+                or item.get("original_post_url")
+                or item.get("source_post_url")
+                or item.get("source_profile_url")
+                or ""
+            )
+            existing_rec = existing_db_records.get(asset_id)
+            if existing_rec:
+                updated_rec = AssetProvenanceRecord(
+                    asset_id=existing_rec.asset_id,
+                    project_id=project_id,
+                    sha256_hash=actual_sha,
+                    phash=existing_rec.phash,
+                    source_url=existing_rec.source_url,
+                    local_path=existing_rec.local_path,
+                    rights_confirmed_for_preview=True,
+                )
+            else:
+                updated_rec = AssetProvenanceRecord(
+                    asset_id=asset_id,
+                    project_id=project_id,
+                    sha256_hash=actual_sha,
+                    source_url=source_url,
+                    local_path=primary_rel,
+                    rights_confirmed_for_preview=True,
+                )
+            upsert_asset_provenance(conn, updated_rec)
+
+        if manifest_changed:
+            modified_manifests.append((mpath, manifest_items))
 
     conn.close()
 
@@ -204,8 +263,8 @@ def confirm_asset_rights(
         for entry in confirmed_entries:
             f.write(json.dumps(entry) + "\n")
 
-    # Atomically write updated asset-manifest.json
-    _atomic_write_text(manifest_path, json.dumps(manifest_items, indent=2))
+    for mpath, manifest_items in modified_manifests:
+        _atomic_write_text(mpath, json.dumps(manifest_items, indent=2))
 
     return confirmed_entries
 

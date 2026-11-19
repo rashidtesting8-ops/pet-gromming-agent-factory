@@ -390,7 +390,11 @@ img {{
 .ev-main {{
   max-width: 1240px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 4rem;
+  padding: 1.5rem 1.25rem 4rem;
+}}
+.ev-band--alt {{
+  background-color: var(--ev-surface-alt);
+  border-radius: var(--ev-radius-lg);
 }}
 @media (prefers-reduced-motion: reduce) {{
   *, *::before, *::after {{
@@ -407,7 +411,7 @@ def _build_header_css() -> str:
     return """.ev-header {
   background-color: var(--ev-surface);
   border-bottom: 1px solid var(--ev-border);
-  padding: 1.1rem 1.25rem;
+  padding: 0.95rem 1.25rem;
 }
 .ev-nav {
   max-width: 1240px;
@@ -472,15 +476,45 @@ def _build_header_css() -> str:
 def _build_hero_css() -> str:
     return """.ev-hero {
   background-color: var(--ev-surface);
-  border: 1px solid var(--ev-border);
-  border-radius: var(--ev-radius-lg);
-  padding: clamp(1.75rem, 4vw, 3.5rem);
-  margin-bottom: 2.75rem;
-  box-shadow: var(--ev-shadow-soft);
+  border-bottom: 1px solid var(--ev-border);
+  padding: clamp(2rem, 4.5vw, 4rem) clamp(1.25rem, 3vw, 2.5rem);
+  margin-bottom: 2.5rem;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: clamp(1.5rem, 3.5vw, 3rem);
+  gap: clamp(1.75rem, 4vw, 3.5rem);
   align-items: center;
+}
+@media (min-width: 900px) {
+  .ev-hero[data-archetype="salon"] {
+    grid-template-columns: 1.15fr 0.85fr;
+  }
+}
+.ev-hero[data-archetype="mobile"] {
+  background-color: var(--ev-surface-dark);
+  color: #F8FAFC;
+  border-radius: var(--ev-radius-lg);
+  border-bottom: none;
+}
+.ev-hero[data-archetype="mobile"] .ev-hero-title {
+  color: #FFFFFF;
+}
+.ev-hero[data-archetype="mobile"] .ev-hero-subtitle,
+.ev-hero[data-archetype="mobile"] .ev-hero-value {
+  color: #E2E8F0;
+}
+.ev-hero[data-archetype="mobile"] .ev-eyebrow {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.ev-hero[data-archetype="mobile"] .cta,
+.ev-hero[data-archetype="mobile"] .btn {
+  background-color: var(--ev-secondary);
+  color: #0F172A;
+}
+.ev-hero[data-archetype="multi-species"] {
+  border-top: 4px solid var(--ev-accent);
+  border-radius: var(--ev-radius-lg);
 }
 .ev-hero-content {
   display: flex;
@@ -489,16 +523,17 @@ def _build_hero_css() -> str:
 }
 .ev-hero-title {
   font-family: var(--ev-font-display);
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(2.1rem, 4.2vw, 3.4rem);
   color: var(--ev-primary);
-  line-height: 1.12;
+  line-height: 1.1;
+  text-wrap: balance;
   margin-bottom: 1rem;
 }
 .ev-hero-subtitle {
   font-size: clamp(1.05rem, 1.5vw, 1.2rem);
   color: var(--ev-text);
   margin-bottom: 0.85rem;
-  max-width: 58ch;
+  max-width: 56ch;
 }
 .ev-hero-value {
   font-size: 0.96rem;
@@ -506,7 +541,7 @@ def _build_hero_css() -> str:
   border-left: 3px solid var(--ev-secondary);
   padding-left: 0.9rem;
   margin-bottom: 1.5rem;
-  max-width: 54ch;
+  max-width: 52ch;
 }
 .ev-hero-actions {
   display: flex;
@@ -518,7 +553,7 @@ def _build_hero_css() -> str:
 .ev-trust-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.65rem;
   width: 100%;
   padding-top: 1.1rem;
   border-top: 1px solid var(--ev-border);
@@ -528,17 +563,19 @@ def _build_hero_css() -> str:
   font-weight: 600;
   color: var(--ev-primary);
   background-color: var(--ev-surface-alt);
-  padding: 0.35rem 0.75rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
 }
 .ev-hero-media {
   width: 100%;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   aspect-ratio: 4 / 3;
   background-color: var(--ev-surface-alt);
   border: 1px solid var(--ev-border);
-  box-shadow: 0 14px 32px -10px rgba(15, 23, 42, 0.14);
+}
+.ev-hero[data-archetype="salon"] .ev-hero-media {
+  box-shadow: 12px 12px 0 var(--ev-surface-alt), 12px 12px 0 1px var(--ev-border);
 }
 .ev-hero-img {
   width: 100%;
@@ -550,23 +587,21 @@ def _build_hero_css() -> str:
 
 def _build_services_css() -> str:
     return """.ev-section {
-  background-color: var(--ev-surface);
-  border: 1px solid var(--ev-border);
-  border-radius: var(--ev-radius-lg);
-  padding: clamp(1.75rem, 3.5vw, 3rem);
-  margin-bottom: 2.5rem;
-  box-shadow: var(--ev-shadow-soft);
+  padding: clamp(2rem, 4vw, 3.5rem) clamp(1.25rem, 2.5vw, 2rem);
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--ev-border);
 }
 .ev-section-header {
-  margin-bottom: 1.75rem;
+  margin-bottom: 2rem;
   max-width: 65ch;
 }
 .ev-section-title {
   font-family: var(--ev-font-display);
-  font-size: clamp(1.6rem, 3vw, 2.35rem);
+  font-size: clamp(1.65rem, 3vw, 2.4rem);
   color: var(--ev-primary);
   margin-bottom: 0.5rem;
-  line-height: 1.2;
+  line-height: 1.18;
+  text-wrap: balance;
 }
 .ev-section-lead {
   color: var(--ev-muted);
@@ -681,27 +716,44 @@ def _build_services_css() -> str:
 def _build_gallery_css() -> str:
     return """.ev-bento-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 1.15rem;
+}
+@media (min-width: 768px) {
+  .ev-bento-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-flow: dense;
+  }
+  .ev-bento-item--featured {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+  .ev-bento-item--featured .ev-gallery-img {
+    height: 100%;
+    min-height: 320px;
+  }
 }
 .ev-bento-item {
   position: relative;
   border-radius: var(--ev-radius-md);
   overflow: hidden;
   border: 1px solid var(--ev-border);
-  background-color: var(--ev-surface-alt);
+  background-color: var(--ev-surface);
+  display: flex;
+  flex-direction: column;
 }
 .ev-gallery-img {
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  border-radius: var(--ev-radius-md);
+  display: block;
 }
 .ev-bento-caption {
-  padding: 0.75rem 1rem;
-  font-size: 0.88rem;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  color: var(--ev-primary);
+  font-variant-numeric: tabular-nums;
+  color: var(--ev-muted);
   background-color: var(--ev-surface);
   border-top: 1px solid var(--ev-border);
 }
@@ -807,6 +859,18 @@ roots.forEach(function(root) {{
 """
 
 
+def _sanitize_custom_css(raw_css: str) -> str:
+    """Validate optional LLM-authored CSS so no external URLs, @import, or expressions slip in."""
+    cleaned = raw_css.strip()
+    if not cleaned or len(cleaned) > 50_000:
+        return ""
+    lowered = cleaned.lower()
+    forbidden = ("http://", "https://", "//", "url(", "@import", "expression(", "javascript:")
+    if any(tok in lowered for tok in forbidden):
+        return ""
+    return cleaned
+
+
 def _maybe_author_bespoke_sections(
     *,
     project_id: str,
@@ -816,12 +880,13 @@ def _maybe_author_bespoke_sections(
     brief_data: dict[str, Any],
     facts_list: list[dict[str, Any]],
     selection_data: dict[str, Any],
-) -> None:
-    """Optionally author bespoke section HTML via llm_adapter, gated by security & claim checks."""
+) -> tuple[str, list[str]]:
+    """Optionally author bespoke HTML + CSS via llm_adapter, gated by security & claim checks."""
     if llm_adapter is None:
-        return
+        return "", []
     from app.claim_scanner import scan_html_for_unsupported_claims
 
+    warnings: list[str] = []
     verified_summary = [
         {
             "category": str(f.get("category", "")),
@@ -842,8 +907,9 @@ def _maybe_author_bespoke_sections(
     img_ctx = json.dumps({"hero": (selection_data.get("hero_image") or {}).get("relative_path")})
     prompt = (
         "Author bespoke semantic HTML5 <section> fragments as JSON mapping section_id -> HTML "
-        "for any of ['hero', 'services', 'contact']. Use ONLY the verified facts provided; "
-        "NEVER invent prices, credentials, awards, phone numbers, or claims. "
+        "for any of ['hero', 'services', 'contact'], plus optional 'custom_css' for bespoke "
+        "styling. Use ONLY the verified facts provided; NEVER invent prices, credentials, awards, "
+        "numbers, or claims. Avoid generic AI clichés ('concierge', 'lookbook', 'luxury spa'). "
         "Use relative asset paths only (no external URLs, no <script>, no inline event handlers).\n"
         f"Brand: {brand_ctx}\n"
         f"Brief: {brief_ctx}\n"
@@ -855,10 +921,10 @@ def _maybe_author_bespoke_sections(
             prompt=prompt,
             system_prompt=(
                 "Return strictly a JSON object mapping section_id strings "
-                "to HTML <section> strings."
+                "to HTML <section> strings (and optional custom_css string)."
             ),
             temperature=0.2,
-            max_tokens=1500,
+            max_tokens=1800,
             project_id=project_id,
             stage="generator_bespoke_sections",
         )
@@ -866,23 +932,37 @@ def _maybe_author_bespoke_sections(
         if raw_content.startswith("```"):
             raw_content = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", raw_content).strip()
         parsed = json.loads(raw_content)
-    except Exception:
-        return
+    except Exception as exc:
+        warnings.append(f"Bespoke LLM section authoring skipped: {exc}")
+        return "", warnings
 
     if not isinstance(parsed, dict):
-        return
+        warnings.append("Bespoke LLM output was not a JSON object")
+        return "", warnings
+
+    custom_css = ""
+    if isinstance(parsed.get("custom_css"), str):
+        custom_css = _sanitize_custom_css(parsed["custom_css"])
+        if parsed["custom_css"].strip() and not custom_css:
+            warnings.append("Rejected bespoke custom_css due to forbidden tokens or size cap")
 
     for sec_id, sec_html in parsed.items():
+        if sec_id == "custom_css":
+            continue
         if sec_id not in sections_map or not isinstance(sec_html, str) or not sec_html.strip():
             continue
         try:
             validate_section_html(sec_id, sec_html)
-        except Exception:
+        except Exception as exc:
+            warnings.append(f"Rejected bespoke section {sec_id!r}: {exc}")
             continue
         scan_res = scan_html_for_unsupported_claims(sec_html, facts_list)
         if not scan_res.passed:
+            warnings.append(f"Rejected bespoke section {sec_id!r}: unsupported claims")
             continue
         sections_map[sec_id] = sec_html.strip()
+
+    return custom_css, warnings
 
 
 def generate_website(
@@ -1183,26 +1263,25 @@ def generate_website(
             "</div>"
         )
 
-    # Build Gallery section (Editorial Bento Portfolio)
+    # Build Gallery section (Asymmetric Bento Grid)
     gallery_html = ""
     if gallery_items:
         imgs_markup = "".join(
             f'<figure class="ev-bento-item'
-            f'{" ev-bento-item--featured" if idx == 1 else ""} ev-card">'
+            f'{" ev-bento-item--featured" if idx == 1 else ""}">'
             f'<img class="ev-gallery-img" src="{html.escape(src)}" '
-            f'alt="{esc_name} Grooming Portfolio {idx}" loading="lazy" '
+            f'alt="{esc_name} photo {idx}" loading="lazy" '
             f'style="object-position: {html.escape(pos)};">'
-            f'<figcaption class="ev-bento-caption">Gallery Photo {idx}</figcaption>'
             f"</figure>"
             for idx, (src, pos) in enumerate(gallery_items, start=1)
         )
         gallery_html = (
-            '<section id="gallery" class="ev-section" data-section="gallery">\n'
+            '<section id="gallery" class="ev-section ev-band--alt" '
+            'data-section="gallery" data-surface="alt">\n'
             '  <div class="ev-section-header">\n'
-            '    <span class="ev-eyebrow">Editorial Lookbook</span>\n'
-            '    <h2 class="ev-section-title">Verified Grooming Portfolio</h2>\n'
-            '    <p class="ev-section-lead">'
-            'Authentic portraits of pets cared for by our stylists.</p>\n'
+            '    <span class="ev-eyebrow">Gallery</span>\n'
+            '    <h2 class="ev-section-title">Recent Grooms</h2>\n'
+            f'    <p class="ev-section-lead">Photos from {esc_name}.</p>\n'
             '  </div>\n'
             f'  <div class="ev-bento-grid">{imgs_markup}</div>\n'
             "</section>"
@@ -1213,18 +1292,19 @@ def generate_website(
     if before_after is not None:
         b_src, a_src = before_after
         ba_html = (
-            '<section id="before-after" class="ev-section" data-section="before-after">\n'
+            '<section id="before-after" class="ev-section" '
+            'data-section="before-after" data-surface="base">\n'
             '  <div class="ev-section-header">\n'
             '    <span class="ev-eyebrow">Coat Transformation</span>\n'
-            '    <h2 class="ev-section-title">Before &amp; After Transformation</h2>\n'
+            '    <h2 class="ev-section-title">Before &amp; After</h2>\n'
             '  </div>\n'
             '  <div class="ev-ba-slider" data-ev-ba-slider="true">\n'
             '    <div class="ev-card">\n'
-            '      <h3 class="ev-card-title">Before Groom</h3>\n'
+            '      <h3 class="ev-card-title">Before</h3>\n'
             f'      <img class="ev-gallery-img" src="{html.escape(b_src)}" alt="Before Grooming">\n'
             '    </div>\n'
             '    <div class="ev-card" data-ev-ba-after="true" data-split="50">\n'
-            '      <h3 class="ev-card-title">After Groom</h3>\n'
+            '      <h3 class="ev-card-title">After</h3>\n'
             f'      <img class="ev-gallery-img" src="{html.escape(a_src)}" alt="After Grooming">\n'
             '    </div>\n'
             '  </div>\n'
@@ -1240,17 +1320,17 @@ def generate_website(
     contact_cards: list[str] = []
     if phone:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Direct Concierge Line</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Phone</h3>'
             f"<p>{html.escape(phone)}</p></div>"
         )
     if address:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Studio Location</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Address</h3>'
             f"<p>{html.escape(address)}</p></div>"
         )
     if hours:
         contact_cards.append(
-            f'<div class="ev-card"><h3 class="ev-card-title">Operating Hours</h3>'
+            f'<div class="ev-card"><h3 class="ev-card-title">Hours</h3>'
             f"<p>{html.escape(hours)}</p></div>"
         )
     if policy:
@@ -1265,9 +1345,9 @@ def generate_website(
         )
 
     contact_html = (
-        '<section id="contact" class="ev-section" data-section="contact">\n'
+        '<section id="contact" class="ev-section" data-section="contact" data-surface="base">\n'
         '  <div class="ev-section-header">\n'
-        '    <span class="ev-eyebrow">Reservations &amp; Concierge</span>\n'
+        '    <span class="ev-eyebrow">Visit &amp; Contact</span>\n'
         '    <h2 class="ev-section-title">Location, Hours &amp; Policies</h2>\n'
         '  </div>\n'
         '  <div class="ev-grid">\n'
@@ -1287,9 +1367,9 @@ def generate_website(
         '      aria-controls="ev-nav-drawer" data-ev-nav-toggle="true">Menu</button>\n'
         '    <ul id="ev-nav-drawer" class="ev-nav-drawer"\n'
         '      data-ev-nav-drawer="true" data-collapsed="false">\n'
-        '      <li><a class="ev-nav-link" href="#services">Spa Menu</a></li>\n'
-        '      <li><a class="ev-nav-link" href="#gallery">Lookbook</a></li>\n'
-        '      <li><a class="ev-nav-link" href="#contact">Hours &amp; Concierge</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#services">Services</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#gallery">Gallery</a></li>\n'
+        '      <li><a class="ev-nav-link" href="#contact">Hours &amp; Contact</a></li>\n'
         '    </ul>\n'
         '  </nav>\n'
         "</header>"
@@ -1308,7 +1388,7 @@ def generate_website(
         f'{value_prop_html}'
         '    <div class="ev-hero-actions">\n'
         f'      <a class="cta btn" href="{html.escape(cta_href)}">{cta_text}</a>\n'
-        '      <a class="ev-btn-secondary" href="#services">Explore Spa Menu</a>\n'
+        '      <a class="ev-btn-secondary" href="#services">View Services</a>\n'
         '    </div>\n'
         f'    <div class="ev-trust-strip">{trust_pills}</div>\n'
         '  </div>\n'
@@ -1316,24 +1396,32 @@ def generate_website(
         "</section>"
     )
 
+    services_lead = (
+        f"Services offered by {esc_name}."
+        if not verified_services
+        else f"Grooming services from {esc_name}: {html.escape(', '.join(verified_services[:3]))}."
+    )
     services_html = (
         '<section id="services" class="ev-section" '
-        f'data-section="services" data-archetype="{archetype}">\n'
+        f'data-section="services" data-archetype="{archetype}" data-surface="base">\n'
         '  <div class="ev-section-header">\n'
-        '    <span class="ev-eyebrow">Curated Grooming Menu</span>\n'
+        '    <span class="ev-eyebrow">Services</span>\n'
         '    <h2 class="ev-section-title">Grooming Services &amp; Pricing</h2>\n'
-        '    <p class="ev-section-lead">'
-        'Verified grooming services and individual attention tailored to your companion.</p>\n'
+        f'    <p class="ev-section-lead">{services_lead}</p>\n'
         '  </div>\n'
         f'  {pricing_section_html}\n'
         "</section>"
     )
 
+    footer_meta = " · ".join(
+        html.escape(part) for part in (phone, address) if part
+    )
+    footer_meta_html = f"\n    <p>{footer_meta}</p>" if footer_meta else ""
     footer_html = (
         '<footer class="ev-footer" data-section="footer">\n'
         '  <div class="ev-footer-inner">\n'
-        f'    <p class="ev-footer-brand">{esc_name}</p>\n'
-        f'    <p>&copy; {esc_name}. Verified by EditVista Luxury Pet Grooming Engine.</p>\n'
+        f'    <p class="ev-footer-brand">{esc_name}</p>{footer_meta_html}\n'
+        f'    <p>&copy; {esc_name}</p>\n'
         '  </div>\n'
         "</footer>"
     )
@@ -1350,7 +1438,7 @@ def generate_website(
     sections_map["contact"] = contact_html
     sections_map["footer"] = footer_html
 
-    _maybe_author_bespoke_sections(
+    custom_css, _bespoke_warnings = _maybe_author_bespoke_sections(
         project_id=project_id,
         llm_adapter=llm_adapter,
         sections_map=sections_map,
@@ -1377,6 +1465,8 @@ def generate_website(
 
     # 2. Output per-section css under website/css/<name>.css and combined css/styles.css
     section_css_map = _build_section_css_map(primary_hex, secondary_hex, accent_hex)
+    if custom_css:
+        section_css_map["bespoke"] = custom_css
     section_css_files: dict[str, Path] = {}
     for css_name, css_text in section_css_map.items():
         c_path = css_dir / f"{css_name}.css"
@@ -1384,6 +1474,8 @@ def generate_website(
         section_css_files[css_name] = c_path
 
     combined_css = _build_css(primary_hex, secondary_hex, accent_hex)
+    if custom_css:
+        combined_css += f"\n/* section: bespoke */\n{custom_css}\n/* endsection: bespoke */\n"
     css_path = css_dir / "styles.css"
     _atomic_write_text(css_path, combined_css)
 

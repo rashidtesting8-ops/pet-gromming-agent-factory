@@ -348,20 +348,40 @@ def _synthesize_editorial_copy(
     business_name: str,
     taxonomy: BusinessTaxonomy,
     wireframe: WireframeStructure,
+    *,
+    verified_services: Sequence[str] = (),
+    address: str | None = None,
 ) -> tuple[str, str, str, list[str]]:
-    """Synthesize deterministic editorial copy without fabricating unverified claims."""
+    """Synthesize grounded, cliché-free copy strictly from verified business facts."""
+    svc_preview = ", ".join(verified_services[:2])
     if taxonomy.is_mobile_groomer:
-        headline = f"{business_name} — Mobile Pet Grooming"
-        tagline = "Mobile pet grooming delivered directly to your address."
-        value_prop = "Convenient driveway appointments and coat care for your companion."
+        headline = business_name
+        tagline = (
+            f"Mobile pet grooming: {svc_preview}."
+            if svc_preview
+            else "Mobile pet grooming at your address."
+        )
+        value_prop = "One-on-one driveway appointments with no salon drop-off."
     elif taxonomy.serves_dogs and taxonomy.serves_cats:
-        headline = f"{business_name} — Canine and Feline Grooming"
-        tagline = "Grooming and coat care for dogs and cats."
-        value_prop = "Canine and feline grooming appointments."
+        headline = business_name
+        tagline = (
+            f"Dog & cat grooming — {svc_preview}."
+            if svc_preview
+            else "Grooming and coat care for both dogs and cats."
+        )
+        value_prop = "Dedicated appointments for canine and feline coats."
     else:
-        headline = f"{business_name} — Pet Grooming Studio"
-        tagline = "Professional pet grooming and coat care."
-        value_prop = "Salon grooming appointments and coat styling."
+        headline = business_name
+        tagline = (
+            f"{svc_preview} by {business_name}."
+            if svc_preview
+            else "Pet grooming and coat care."
+        )
+        value_prop = (
+            f"Visit us at {address}."
+            if address
+            else "Calm, attentive grooming appointments."
+        )
     return headline, tagline, value_prop, list(wireframe.ordered_sections)
 
 
@@ -482,13 +502,31 @@ def generate_art_direction(
     )
     cta_target = f"tel:{re.sub(r'[^0-9+]', '', phone)}" if phone else None
 
-    # Deterministic luxury editorial defaults, overridden when LLM adapter is provided
+    verified_services_for_copy: list[str] = []
+    verified_address_for_copy: str | None = None
+    for f in facts_list:
+        if bool(f.get("is_verified", False)) and str(f.get("status", "verified")) == "verified":
+            cat = str(f.get("category", ""))
+            val = clean_display_fact(str(f.get("claim_value", "")))
+            if cat in ("services", "canine_services", "feline_services") and val:
+                if val not in verified_services_for_copy:
+                    verified_services_for_copy.append(val)
+            elif cat == "address" and val and verified_address_for_copy is None:
+                verified_address_for_copy = val
+
+    # Grounded editorial defaults, overridden when LLM adapter is provided
     (
         default_headline,
         default_tagline,
         default_value_prop,
         default_sections,
-    ) = _synthesize_editorial_copy(business_name, taxonomy, wireframe)
+    ) = _synthesize_editorial_copy(
+        business_name,
+        taxonomy,
+        wireframe,
+        verified_services=verified_services_for_copy,
+        address=verified_address_for_copy,
+    )
     editorial_headline: str | None = default_headline
     editorial_tagline: str | None = default_tagline
     editorial_value_prop: str | None = default_value_prop
@@ -509,13 +547,14 @@ def generate_art_direction(
             f"Taxonomy: {tax_str}\n"
             f"Serves: {serves_str}\n"
             f"Verified Facts:\n{facts_summary}\n\n"
-            "Generate bespoke editorial copywriting for this pet grooming website.\n"
+            "Write concise, natural, human-sounding copy for this pet grooming website.\n"
             "Return valid JSON strictly with fields: headline, tagline, value_proposition, "
             "suggested_section_order.\n"
-            "Never invent discounts, reviews, or prices not in the verified facts."
+            "Avoid generic AI clichés ('luxury spa', 'concierge', 'lookbook', 'curated', "
+            "'tailored to your companion', 'elevate'). Never invent discounts, reviews, or prices."
         )
         sys_prompt = (
-            "You are an elite editorial art director for luxury pet care brands. "
+            "You are a senior brand copywriter for local pet grooming businesses. "
             "Output valid JSON only."
         )
         try:

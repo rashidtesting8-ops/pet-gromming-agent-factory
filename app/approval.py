@@ -124,11 +124,13 @@ def generate_review_summary(
             else:
                 needs_review_count += 1
 
-    # 2. Curated assets & rights_confirmed_for_preview status
-    asset_manifest_path = project_root / "research" / "asset-manifest.json"
+    # 2. Curated assets & rights_confirmed_for_preview status (website + social manifests)
     curated_assets: list[dict[str, Any]] = []
-    if asset_manifest_path.is_file():
-        raw_assets = json.loads(asset_manifest_path.read_text(encoding="utf-8"))
+    for manifest_name in ("asset-manifest.json", "social-media-manifest.json"):
+        mpath = project_root / "research" / manifest_name
+        if not mpath.is_file():
+            continue
+        raw_assets = json.loads(mpath.read_text(encoding="utf-8"))
         if isinstance(raw_assets, list):
             for item in raw_assets:
                 if isinstance(item, dict) and item.get("file"):
@@ -136,7 +138,13 @@ def generate_review_summary(
                         {
                             "file": str(item["file"]),
                             "sha256": str(item.get("sha256", "")),
-                            "source_url": str(item.get("url") or item.get("source_url") or ""),
+                            "source_url": str(
+                                item.get("url")
+                                or item.get("source_url")
+                                or item.get("original_post_url")
+                                or item.get("source_post_url")
+                                or ""
+                            ),
                             "rights_confirmed_for_preview": bool(
                                 item.get("rights_confirmed_for_preview", False)
                             ),
